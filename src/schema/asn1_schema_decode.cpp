@@ -75,16 +75,34 @@ bool expectedTag(const asn1::Schema *schema, const asn1::SchemaType *type,
         *outNumber = type->tagNumber;
         return true;
     }
+    /* 剥离显式包装后，内层始终回到通用 SEQUENCE/SET 标签。 */
+    if (unwrapped) {
+        if (type->kind == ASN1_TYPE_KIND_SEQUENCE ||
+            type->kind == ASN1_TYPE_KIND_SEQUENCE_OF) {
+            *outClass = ASN1_TAG_UNIVERSAL;
+            *outNumber = 16;
+            return true;
+        }
+        if (type->kind == ASN1_TYPE_KIND_SET ||
+            type->kind == ASN1_TYPE_KIND_SET_OF) {
+            *outClass = ASN1_TAG_UNIVERSAL;
+            *outNumber = 17;
+            return true;
+        }
+    }
+    /* IMPLICIT 覆盖的构造类型改用类型自身的非通用标签。 */
     if (type->kind == ASN1_TYPE_KIND_SEQUENCE ||
         type->kind == ASN1_TYPE_KIND_SEQUENCE_OF) {
-        *outClass = ASN1_TAG_UNIVERSAL;
-        *outNumber = 16;
+        *outClass = type->tagClass;
+        *outNumber =
+            type->tagClass == ASN1_TAG_UNIVERSAL ? 16 : type->tagNumber;
         return true;
     }
     if (type->kind == ASN1_TYPE_KIND_SET ||
         type->kind == ASN1_TYPE_KIND_SET_OF) {
-        *outClass = ASN1_TAG_UNIVERSAL;
-        *outNumber = 17;
+        *outClass = type->tagClass;
+        *outNumber =
+            type->tagClass == ASN1_TAG_UNIVERSAL ? 17 : type->tagNumber;
         return true;
     }
     if (type->tagClass == ASN1_TAG_UNIVERSAL) {
@@ -364,8 +382,18 @@ int evalSimpleConstraint(BindContext &bind,
         return ASN1_OK;
     }
 
-    if (node->tagClass != ASN1_TAG_UNIVERSAL || node->tagNumber != 2 ||
-        ((node->flags & asn1::kNodeFlagConstructed) != 0)) {
+    /*
+     * 数值约束只接受基本编码的数值节点。通用标签下允许 INTEGER 与
+     * ENUMERATED；非通用标签（IMPLICIT 覆盖）由类型自身决定语义，
+     * 此处只拒绝构造形态。
+     */
+    const bool constructed =
+        (node->flags & asn1::kNodeFlagConstructed) != 0;
+    const bool universalNumeric =
+        node->tagClass == ASN1_TAG_UNIVERSAL &&
+        (node->tagNumber == 2 || node->tagNumber == 10);
+    if (constructed ||
+        (node->tagClass == ASN1_TAG_UNIVERSAL && !universalNumeric)) {
         asn1::contextSetErrorWithPath(bind.ctx, ASN1_E_SCHEMA_CONSTRAINT,
                                       node->tlvOffset, node->depth, path);
         return ASN1_E_SCHEMA_CONSTRAINT;

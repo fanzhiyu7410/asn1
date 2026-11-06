@@ -74,7 +74,244 @@ SYNTH_BINARY = {
     "high_tag_private": b"\xdf\x81\x00\x00",
 }
 
-# asn1c 文本 harness 的种子（.asn1 文本）。
+def _der_tlv(tag, content):
+    if len(content) < 0x80:
+        header = bytes([tag, len(content)])
+    else:
+        n = len(content)
+        octets = []
+        while n:
+            octets.insert(0, n & 0xFF)
+            n >>= 8
+        header = bytes([tag, 0x80 | len(octets)] + octets)
+    return header + content
+
+
+def _der_int(value):
+    if value == 0:
+        return b"\x00"
+    size = 1
+    while True:
+        try:
+            return value.to_bytes(size, "big", signed=True)
+        except OverflowError:
+            size += 1
+
+
+def _der_seq(*items):
+    return _der_tlv(0x30, b"".join(items))
+
+
+def _der_set(*items):
+    return _der_tlv(0x31, b"".join(items))
+
+
+def _der_null():
+    return b"\x05\x00"
+
+
+OID_P256 = _der_tlv(0x06, b"\x2a\x86\x48\xce\x3d\x04\x01")
+BOOL_TRUE = b"\x01\x01\xff"
+
+# schema_decode 专用种子：与 harness 内富表（RichRoot）、未知字段表（SEQ{INT}）、
+# SET 表（SET{INT,OCT OPT}）、根 SIMPLE/CHOICE/必需 ANY 表逐项对应。
+SCHEMA_DECODE_SYNTH = {
+    # RichRoot：基础与全量。
+    "rich_min": _der_seq(_der_tlv(0x02, _der_int(0))),
+    "rich_range_high": _der_seq(_der_tlv(0x02, _der_int(8))),
+    "rich_range_low": _der_seq(_der_tlv(0x02, _der_int(-6))),
+    "rich_full": _der_seq(
+        _der_tlv(0x02, _der_int(0)),
+        _der_tlv(0x86, _der_int(10 ** 19)),
+        _der_tlv(0x8B, _der_int(3)),
+        _der_tlv(0x0A, _der_int(3)),
+        _der_tlv(0x04, b"ab"),
+        _der_tlv(0x87, b"ab"),
+        _der_tlv(0xA0, _der_tlv(0x02, _der_int(5))),
+        _der_tlv(0x85, _der_int(5)),
+        OID_P256,
+        _der_tlv(0xA9, _der_seq(OID_P256, _der_tlv(0x06, b"\x2a"))),
+        _der_tlv(0xAA, _der_set(_der_tlv(0x02, _der_int(1)),
+                               _der_tlv(0x02, _der_int(2)))),
+        _der_tlv(0xA8, _der_set(BOOL_TRUE, _der_tlv(0x02, _der_int(5)))),
+        _der_tlv(0xA2, _der_seq(_der_tlv(0x02, _der_int(5)) )),
+        _der_tlv(0x02, _der_int(3)),
+        _der_tlv(0xA3, _der_null()),
+        _der_null(),
+    ),
+    # BIGINT 约束两侧：10^19 通过，10^21 越界。
+    "rich_big_ok": _der_seq(_der_tlv(0x02, _der_int(0)),
+                           _der_tlv(0x86, _der_int(10 ** 19))),
+    "rich_big_fail": _der_seq(_der_tlv(0x02, _der_int(0)),
+                              _der_tlv(0x86, _der_int(10 ** 21))),
+    # ENUM（IMPLICIT）与 ENUMERATED 两侧。
+    "rich_enum_ok": _der_seq(_der_tlv(0x02, _der_int(0)),
+                             _der_tlv(0x8B, _der_int(3))),
+    "rich_enum_bad": _der_seq(_der_tlv(0x02, _der_int(0)),
+                              _der_tlv(0x8B, _der_int(2))),
+    "rich_enum_big": _der_seq(_der_tlv(0x02, _der_int(0)),
+                              _der_tlv(0x8B, _der_int(-2 ** 63))),
+    "rich_enumtag_ok": _der_seq(_der_tlv(0x02, _der_int(0)),
+                                _der_tlv(0x0A, _der_int(3))),
+    "rich_enumtag_bad": _der_seq(_der_tlv(0x02, _der_int(0)),
+                                 _der_tlv(0x0A, _der_int(2))),
+    # IMPLICIT INTEGER 约束两侧。
+    "rich_impl_ok": _der_seq(_der_tlv(0x02, _der_int(0)),
+                             _der_tlv(0x85, _der_int(5))),
+    "rich_impl_bad": _der_seq(_der_tlv(0x02, _der_int(0)),
+                              _der_tlv(0x85, _der_int(11))),
+    # OCTET STRING SIZE 与 MAX 两侧。
+    "rich_oct_short": _der_seq(_der_tlv(0x02, _der_int(0)),
+                               _der_tlv(0x04, b"a")),
+    "rich_oct_long": _der_seq(_der_tlv(0x02, _der_int(0)),
+                              _der_tlv(0x04, b"abcde")),
+    "rich_maxoct_ok": _der_seq(_der_tlv(0x02, _der_int(0)),
+                               _der_tlv(0x87, b"ab")),
+    "rich_maxoct_bad": _der_seq(_der_tlv(0x02, _der_int(0)),
+                                _der_tlv(0x87, b"a")),
+    # EXPLICIT INTEGER：通过、越界、内层非 INTEGER、包装标签错误、多子节点。
+    "rich_expl_ok": _der_seq(_der_tlv(0x02, _der_int(0)),
+                             _der_tlv(0xA0, _der_tlv(0x02, _der_int(5))),
+                             ),
+    "rich_expl_bad": _der_seq(_der_tlv(0x02, _der_int(0)),
+                              _der_tlv(0xA0, _der_tlv(0x02, _der_int(11))),
+                              ),
+    "rich_expl_nonint": _der_seq(_der_tlv(0x02, _der_int(0)),
+                                 _der_tlv(0xA0, _der_tlv(0x04, b"a"))),
+    "rich_expl_wrongtag": _der_seq(_der_tlv(0x02, _der_int(0)),
+                                   _der_tlv(0xA1, _der_tlv(0x02, _der_int(5)))),
+    "rich_expl_two": _der_seq(_der_tlv(0x02, _der_int(0)),
+                              _der_tlv(0xA0, _der_tlv(0x02, _der_int(5)) +
+                                       _der_tlv(0x02, _der_int(6))),
+                              _der_tlv(0x05, b"")),
+    # CHOICE 两个分支与无分支。
+    "rich_choice_oid": _der_seq(_der_tlv(0x02, _der_int(0)), OID_P256),
+    "rich_choice_bool": _der_seq(_der_tlv(0x02, _der_int(0)),
+                                 BOOL_TRUE),
+    # SEQUENCE OF / SET OF 数量两侧与元素类型错误。
+    "rich_seqof_ok": _der_seq(_der_tlv(0x02, _der_int(0)),
+                              _der_tlv(0xA9, _der_seq(OID_P256,
+                                                      _der_tlv(0x06, b"\x2a"))),
+                              ),
+    "rich_seqof_empty": _der_seq(_der_tlv(0x02, _der_int(0)),
+                                 _der_tlv(0xA9, _der_seq())),
+    "rich_seqof_four": _der_seq(
+        _der_tlv(0x02, _der_int(0)),
+        _der_tlv(0xA9, _der_seq(OID_P256, _der_tlv(0x06, b"\x2a"),
+                                _der_tlv(0x06, b"\x2a"),
+                                _der_tlv(0x06, b"\x2a"))),
+    ),
+    "rich_seqof_badelem": _der_seq(_der_tlv(0x02, _der_int(0)),
+                                  _der_tlv(0xA9, _der_seq(
+                                      _der_tlv(0x02, _der_int(5)))),
+                                  ),
+    "rich_setof_ok": _der_seq(
+        _der_tlv(0x02, _der_int(0)),
+        _der_tlv(0xAA, _der_set(_der_tlv(0x02, _der_int(1)),
+                                _der_tlv(0x02, _der_int(2)))),
+    ),
+    "rich_setof_empty": _der_seq(_der_tlv(0x02, _der_int(0)),
+                                 _der_tlv(0xAA, _der_set())),
+    "rich_setof_badelem": _der_seq(_der_tlv(0x02, _der_int(0)),
+                                   _der_tlv(0xAA, _der_set(
+                                       _der_tlv(0x04, b"a"))),
+                                   ),
+    # SET（EXPLICIT 包装）通过、必需字段缺失、未知字段、乱序。
+    "rich_innerset_ok": _der_seq(_der_tlv(0x02, _der_int(0)),
+                                 _der_tlv(0xA8, _der_set(
+                                     BOOL_TRUE,
+                                     _der_tlv(0x02, _der_int(5)))),
+                                 ),
+    "rich_innerset_missing": _der_seq(
+        _der_tlv(0x02, _der_int(0)),
+        _der_tlv(0xA8, _der_set(_der_tlv(0x02, _der_int(5)))),
+    ),
+    "rich_innerset_unknown": _der_seq(
+        _der_tlv(0x02, _der_int(0)),
+        _der_tlv(0xA8, _der_set(BOOL_TRUE, _der_tlv(0x02, _der_int(5)),
+                                _der_tlv(0x04, b"a"))),
+    ),
+    # EXPLICIT SEQUENCE 与 EXPLICIT ANY（单子、双子、空包装）。
+    "rich_explseq_ok": _der_seq(_der_tlv(0x02, _der_int(0)),
+                                _der_tlv(0xA2, _der_seq(
+                                    _der_tlv(0x02, _der_int(5)))),
+                                ),
+    "rich_anyexp_two": _der_seq(_der_tlv(0x02, _der_int(0)),
+                                _der_tlv(0xA3, _der_null() + _der_null())),
+    "rich_anyexp_empty": _der_seq(_der_tlv(0x02, _der_int(0)),
+                                  _der_tlv(0xA3, b"")),
+    # 未知字段表 SEQ { INT a }：未知保留 / 缺失必需。
+    "unknown_seq_ok": _der_seq(_der_tlv(0x02, _der_int(5))),
+    "unknown_seq_unknown": _der_seq(_der_tlv(0x02, _der_int(5)), BOOL_TRUE),
+    "unknown_seq_missing": _der_seq(),
+    # SET 表：通过、未知、缺失。
+    "set_root_ok": _der_set(_der_tlv(0x02, _der_int(5)),
+                            _der_tlv(0x04, b"a")),
+    "set_root_unknown": _der_set(_der_tlv(0x02, _der_int(5)), BOOL_TRUE),
+    "set_root_missing": _der_set(_der_tlv(0x04, b"a")),
+    # 根 SIMPLE / 根 CHOICE / 必需 ANY。
+    "simple_root_ok": _der_tlv(0x02, _der_int(5)),
+    "simple_root_wrongtag": _der_tlv(0x04, b"a"),
+    "choice_root_ok": OID_P256,
+    "choice_root_nomatch": _der_tlv(0x03, b"\x00"),
+    "any_required_ok": _der_seq(_der_tlv(0x02, _der_int(5)), _der_null()),
+    "any_required_missing": _der_seq(_der_tlv(0x02, _der_int(5))),
+    # EXPLICIT CHOICE / IMPLICIT SEQUENCE / IMPLICIT SET OF。
+    "rich_expl_choice": _der_seq(_der_tlv(0x02, _der_int(0)),
+                                 _der_tlv(0xAC, OID_P256)),
+    "rich_expl_choice_bad": _der_seq(_der_tlv(0x02, _der_int(0)),
+                                    _der_tlv(0xAC,
+                                             _der_tlv(0x02, _der_int(5)))),
+    "rich_implseq": _der_seq(_der_tlv(0x02, _der_int(0)),
+                             _der_tlv(0xAD, _der_tlv(0x02, _der_int(5)))),
+    "rich_implseq_missing": _der_seq(_der_tlv(0x02, _der_int(0)),
+                                     _der_tlv(0xAD, b"")),
+    "rich_implsetof": _der_seq(_der_tlv(0x02, _der_int(0)),
+                               _der_tlv(0xAE, _der_tlv(0x02, _der_int(1)) +
+                                        _der_tlv(0x02, _der_int(2)))),
+    "rich_implsetof_empty": _der_seq(_der_tlv(0x02, _der_int(0)),
+                                     _der_tlv(0xAE, b"")),
+    "rich_implsetof_three": _der_seq(_der_tlv(0x02, _der_int(0)),
+                                     _der_tlv(0xAE, _der_tlv(0x02, _der_int(1)) +
+                                              _der_tlv(0x02, _der_int(2)) +
+                                              _der_tlv(0x02, _der_int(3)))),
+    "rich_impl_empty": _der_seq(_der_tlv(0x02, _der_int(0)),
+                                _der_tlv(0x85, b"")),
+    "rich_range_huge": _der_seq(_der_tlv(0x02, b"\x01" + b"\x00" * 512)),
+    "rich_enum_huge": _der_seq(_der_tlv(0x02, _der_int(0)),
+                               _der_tlv(0x8B, _der_int(10 ** 20))),
+    "rich_any_bare": _der_seq(_der_tlv(0x02, _der_int(0)), _der_null()),
+    "rich_any_indef": _der_seq(_der_tlv(0x02, _der_int(0)),
+                               b"\x05\x80\x00\x00"),
+    "rich_any_long": _der_seq(_der_tlv(0x02, _der_int(0)),
+                              _der_tlv(0x04, b"a" * 200)),
+    "rich_missing_ranged": _der_seq(_der_tlv(0x04, b"ab")),
+    "rich_implset": _der_seq(_der_tlv(0x02, _der_int(0)),
+                             _der_tlv(0xAF, _der_tlv(0x02, _der_int(5)))),
+    # SET 内字段约束失败（count 超出 RANGE）。
+    "rich_innerset_bad": _der_seq(_der_tlv(0x02, _der_int(0)),
+                                  _der_tlv(0xA8, _der_set(
+                                      BOOL_TRUE, _der_tlv(0x02, _der_int(8)))),
+                                  ),
+    # SET 根表：缺省 DEFAULT 字段。
+    "set_root_default": _der_set(_der_tlv(0x02, _der_int(5))),
+    # SEQUENCE OF 带元素值域约束：进入非 SIZE 约束分支后必然失败。
+    "of_range": _der_seq(_der_tlv(0x02, _der_int(1))),
+    "of_range_empty": _der_seq(),
+    # 三层嵌套 / 根 EXPLICIT 包装。
+    "nested3": _der_seq(_der_tlv(0x02, _der_int(0)),
+                        _der_seq(_der_tlv(0x02, _der_int(0)),
+                                 _der_seq(_der_tlv(0x02, _der_int(0))))) ,
+    "expl_root_ok": _der_tlv(0xA0, _der_tlv(0x02, _der_int(5))),
+    "expl_root_badtag": _der_tlv(0xA1, _der_tlv(0x02, _der_int(5))),
+    "any_expl_root_ok": _der_tlv(0xA3, _der_null()),
+    "any_expl_root_badtag": _der_tlv(0xA4, _der_null()),
+    # 尾随与截断。
+    "rich_trailing": _der_seq(_der_tlv(0x02, _der_int(0))) + _der_null(),
+    "rich_truncated": b"\x30\x03\x02",
+}
+
+
 ASN1C_DIR = os.path.join(DATA, "asn1c")
 ASN1C_SEEDS = ["equiv_sample.asn1"] + [
     os.path.join("negative", f)
@@ -113,6 +350,11 @@ def main():
             write_bytes(os.path.join(hdir, name), open(src, "rb").read())
         for name, data in SYNTH_BINARY.items():
             write_bytes(os.path.join(hdir, name), data)
+
+    # 1.1) schema_decode 专用定向种子（对应 harness 内富表与各根表）。
+    hdir = os.path.join(CORPUS, "schema_decode")
+    for name, data in SCHEMA_DECODE_SYNTH.items():
+        write_bytes(os.path.join(hdir, name), data)
 
     # 2) schema_load：真实 PKIX 表字节（最大攻击面）+ 空/垃圾。
     hdir = os.path.join(CORPUS, "schema_load")

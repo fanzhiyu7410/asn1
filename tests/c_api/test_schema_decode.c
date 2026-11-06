@@ -1332,6 +1332,119 @@ int main(void)
         asn1_schema_destroy(schema);
     }
 
+    /* ===== 10. 回归：ENUMERATED 与 IMPLICIT 标签的约束/绑定 ===== */
+    {
+        /* ENUMERATED（universal tag 10）参与 ENUM 约束求值。 */
+        asn1_schema_t *schema = NULL;
+        ASN1_TEST_CHECK(asn1_schema_create(ctx, ASN1_TAG_MODE_DEFAULT,
+                                           &schema) == ASN1_OK);
+        static const int64_t kEnums[3] = {1, 3, 5};
+        asn1_constraint_t enumConstraint;
+        memset(&enumConstraint, 0, sizeof(enumConstraint));
+        enumConstraint.struct_size = sizeof(enumConstraint);
+        enumConstraint.kind = ASN1_CONSTRAINT_ENUM;
+        enumConstraint.enum_values = kEnums;
+        enumConstraint.enum_count = 3;
+        uint32_t enumId = 0;
+        asn1_type_desc_t enumType =
+            make_type("Enum", ASN1_TYPE_KIND_SIMPLE, ASN1_TAG_UNIVERSAL, 10,
+                      ASN1_TAG_MODE_DEFAULT, 0);
+        enumType.constraints = &enumConstraint;
+        enumType.constraint_count = 1;
+        ASN1_TEST_CHECK(asn1_schema_add_type(schema, &enumType, &enumId) ==
+                        ASN1_OK);
+        ASN1_TEST_CHECK(asn1_schema_set_root(schema, enumId) == ASN1_OK);
+        ASN1_TEST_CHECK(asn1_schema_seal(schema) == ASN1_OK);
+
+        static const uint8_t kEnumOk[3] = {0x0A, 0x01, 0x03};
+        static const uint8_t kEnumBad[3] = {0x0A, 0x01, 0x02};
+        asn1_doc_t *doc = NULL;
+        ASN1_TEST_CHECK(decode_schema(ctx, schema, kEnumOk, sizeof(kEnumOk), 0,
+                                      &doc) == ASN1_OK);
+        int64_t value = 0;
+        ASN1_TEST_CHECK(asn1_node_get_int64(asn1_doc_root(doc), &value) ==
+                        ASN1_OK);
+        ASN1_TEST_CHECK(value == 3);
+        asn1_doc_destroy(doc);
+        ASN1_TEST_CHECK(decode_schema(ctx, schema, kEnumBad, sizeof(kEnumBad),
+                                      0, &doc) == ASN1_E_SCHEMA_CONSTRAINT);
+        asn1_schema_destroy(schema);
+    }
+
+    {
+        /* IMPLICIT 隐式覆盖的 INTEGER：RANGE 约束按数值求值。 */
+        asn1_schema_t *schema = NULL;
+        ASN1_TEST_CHECK(asn1_schema_create(ctx, ASN1_TAG_MODE_DEFAULT,
+                                           &schema) == ASN1_OK);
+        asn1_constraint_t range = make_range(0, 10);
+        uint32_t intId = 0;
+        asn1_type_desc_t intType =
+            make_type("ImplicitInt", ASN1_TYPE_KIND_SIMPLE, ASN1_TAG_CONTEXT, 0,
+                      ASN1_TAG_MODE_IMPLICIT, 0);
+        intType.constraints = &range;
+        intType.constraint_count = 1;
+        ASN1_TEST_CHECK(asn1_schema_add_type(schema, &intType, &intId) ==
+                        ASN1_OK);
+        ASN1_TEST_CHECK(asn1_schema_set_root(schema, intId) == ASN1_OK);
+        ASN1_TEST_CHECK(asn1_schema_seal(schema) == ASN1_OK);
+
+        static const uint8_t kImplicitOk[3] = {0x80, 0x01, 0x05};
+        static const uint8_t kImplicitBad[3] = {0x80, 0x01, 0x0B};
+        asn1_doc_t *doc = NULL;
+        ASN1_TEST_CHECK(decode_schema(ctx, schema, kImplicitOk,
+                                      sizeof(kImplicitOk), 0, &doc) ==
+                        ASN1_OK);
+        /* 非通用标签节点不提供数值读取，直接核对内容。 */
+        const uint8_t *content = NULL;
+        size_t contentSize = 0;
+        ASN1_TEST_CHECK(asn1_node_content(asn1_doc_root(doc), &content,
+                                          &contentSize) == ASN1_OK);
+        ASN1_TEST_CHECK(contentSize == 1 && content != NULL &&
+                        content[0] == 0x05);
+        asn1_doc_destroy(doc);
+        ASN1_TEST_CHECK(decode_schema(ctx, schema, kImplicitBad,
+                                      sizeof(kImplicitBad), 0, &doc) ==
+                        ASN1_E_SCHEMA_CONSTRAINT);
+        asn1_schema_destroy(schema);
+    }
+
+    {
+        /* IMPLICIT 隐式覆盖的 SEQUENCE：按类型自身标签匹配。 */
+        asn1_schema_t *schema = NULL;
+        ASN1_TEST_CHECK(asn1_schema_create(ctx, ASN1_TAG_MODE_DEFAULT,
+                                           &schema) == ASN1_OK);
+        uint32_t intId = 0;
+        uint32_t seqId = 0;
+        asn1_type_desc_t intType =
+            make_type("Int", ASN1_TYPE_KIND_SIMPLE, ASN1_TAG_UNIVERSAL, 2,
+                      ASN1_TAG_MODE_DEFAULT, 0);
+        ASN1_TEST_CHECK(asn1_schema_add_type(schema, &intType, &intId) ==
+                        ASN1_OK);
+        asn1_type_desc_t seqType =
+            make_type("ImplicitSeq", ASN1_TYPE_KIND_SEQUENCE, ASN1_TAG_CONTEXT,
+                      13, ASN1_TAG_MODE_IMPLICIT, 0);
+        ASN1_TEST_CHECK(asn1_schema_add_type(schema, &seqType, &seqId) ==
+                        ASN1_OK);
+        asn1_field_desc_t xField = make_field("x", intId, 0);
+        ASN1_TEST_CHECK(asn1_schema_add_field(schema, seqId, &xField) ==
+                        ASN1_OK);
+        ASN1_TEST_CHECK(asn1_schema_set_root(schema, seqId) == ASN1_OK);
+        ASN1_TEST_CHECK(asn1_schema_seal(schema) == ASN1_OK);
+
+        static const uint8_t kImplSeq[5] = {0xAD, 0x03, 0x02, 0x01, 0x05};
+        asn1_doc_t *doc = NULL;
+        ASN1_TEST_CHECK(decode_schema(ctx, schema, kImplSeq, sizeof(kImplSeq),
+                                      0, &doc) == ASN1_OK);
+        const asn1_node_t *root = asn1_doc_root(doc);
+        const asn1_node_t *x = asn1_node_child_by_name(root, "x");
+        ASN1_TEST_CHECK(x != NULL);
+        int64_t value = 0;
+        ASN1_TEST_CHECK(asn1_node_get_int64(x, &value) == ASN1_OK);
+        ASN1_TEST_CHECK(value == 5);
+        asn1_doc_destroy(doc);
+        asn1_schema_destroy(schema);
+    }
+
     asn1_ctx_destroy(ctx);
     return 0;
 }

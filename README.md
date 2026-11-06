@@ -167,7 +167,7 @@ ANY 字段（如 `algorithmIdentifier.parameters`）只返回原始 TLV，模块
 
 | 验证项 | 结果 |
 | --- | --- |
-| Windows 本机 MSVC 19.51 x64（2026-11-06） | **本地实测**：Release 共享/静态 `ctest` **23/23**；Debug 共享/静态 **22/23**（`test_encode` 被本机环境锁定报 Access is denied，非测试失败） |
+| Windows 本机 MSVC 19.51 x64（2026-11-06） | **本地实测**：Release 共享/静态 `ctest` **23/23**；Debug 共享 **23/23**（`test_encode` 在旧目录与新目录均复测通过，此前 Access is denied 为瞬时文件锁/扫描占用） |
 | Windows 本机 MinGW-W64 GCC 13.2.0（2026-11-06） | **本地实测**：共享/静态 `ctest` **23/23** 通过 |
 | WSL2 Ubuntu 26.04 + GCC 15.2.0（2026-11-06） | **本地实测**：共享/静态各一轮 `ctest` **23/23** 通过 |
 | WSL2 Ubuntu 26.04 + Clang 21.1.8（2026-11-06） | **本地实测**：共享/静态各一轮 `ctest` **23/23** 通过（`test_any` 已纳入共享，另新增 `test_pkix_pool`、`test_fuzz_smoke`） |
@@ -175,6 +175,7 @@ ANY 字段（如 `algorithmIdentifier.parameters`）只返回原始 TLV，模块
 | libFuzzer 短跑（7 harness，ASan+UBSan+LSan，各 60 s） | **本地实测**：无崩溃/泄漏/超时；迭代数见下表 |
 | libFuzzer 长跑（`fuzz_schema_load`，900 s） | **本地实测**：54,361,459 次执行、无崩溃/泄漏/超时；`cov 356` 为 trace-pc-guard **边数**（补语料后检入语料短跑 `cov 559`、短 fuzz `cov 563`），非块/分支覆盖率 |
 | schema 加载行/分支覆盖率（llvm-cov，检入语料全量 + 30 s 短 fuzz） | **本地实测**：`asn1_schema_table.cpp` 行 95.06% / 分支 83.14%；详见 [测试与验证](docs/07-测试与验证.md) 9.1 |
+| schema 感知解码行/分支覆盖率（llvm-cov，检入语料全量 + 30 s 短 fuzz） | **本地实测**：`asn1_schema_decode.cpp` 行 90.66% / 分支 85.36% / 函数 100%，`cov 463`（trace-pc-guard 边数）；详见 [测试与验证](docs/07-测试与验证.md) 9.2 |
 | 差分（`asn1_dump` + OpenSSL `asn1parse`） | **本地实测**：8 个真实 DER 全一致（结构层级/TLV 边界/偏移）；decode→encode 往返 8/8 逐字节一致且 openssl 复解析合法；asn1tools 未装 → skipped |
 | 嵌入式（核心 BER/DER，无 schema） | **本地实测**：`.text` 约 11.5 KB（实测 `.text` 11,548 / `.data` 1,348 / `.bss` 17,212）、静态池 **16 KB 起**；适合小容量 MCU |
 | 嵌入式（带 PKIX 描述表 + schema 感知解码） | **本地实测**：最小静态池 **86,880 字节（约 85 KB）**，需外扩 RAM；**约 85 KB 池不适合 RAM 低于 96 KB 的小容量 MCU** |
