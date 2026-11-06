@@ -25,5 +25,7 @@ pkcs_table_view pkcs8PrivateKeyInfoTable();
 pkcs_table_view pkcs8EncryptedPrivateKeyInfoTable();
 pkcs_table_view pkcs1RsaPublicKeyTable();
 pkcs_table_view pkcs1RsaPrivateKeyTable();
+pkcs_table_view pkcs10CertificationRequestTable();
+pkcs_table_view pkcs10CertificationRequestInfoTable();
 
 #endif /* ASN1_PKCS_TABLES_H_INCLUDED */

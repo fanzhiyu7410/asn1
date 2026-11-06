@@ -1,0 +1,16 @@
+/*
+ * Copyright (c) 2026 asn1 project contributors
+ * SPDX-License-Identifier: MIT
+ */
+
+/* 由 asn1c 生成；ASN1_PKCS_REGENERATE_TABLE=ON 时来自构建目录。 */
+#include "pkcs10_certification_request_schema.h"
+
+#include "pkcs_tables.h"
+
+pkcs_table_view pkcs10CertificationRequestTable()
+{
+    pkcs_table_view view = {kPKCS10Flattened2986Schema,
+                            kPKCS10Flattened2986Schema_size};
+    return view;
+}
