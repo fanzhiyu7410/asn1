@@ -794,7 +794,7 @@ asn1_err_t asn1_pkix_certificate_validity(
 
 ### 6.10 asn1-cms 模块 API
 
-`asn1-cms` 是独立包（`find_package(asn1-cms CONFIG)`），只依赖核心公共 C ABI，**不依赖 asn1-pkix**（ADR-0012；从 `SignedData` 可达的 PKIX 类型已复制进本模块展平源）。公共头为 `<asn1/cms/cms.h>`，导出宏 `ASN1_CMS_API`，静态链接时宏 `ASN1_CMS_STATIC`。2 个不透明句柄各由 `open` 创建、`close` 销毁（`close(NULL)` 为空操作）：`ContentInfo`、`SignedData`。
+`asn1-cms` 是独立包（`find_package(asn1-cms CONFIG)`），只依赖核心公共 C ABI，**不依赖 asn1-pkix**（ADR-0012；从 `SignedData` 可达的 PKIX 类型已复制进本模块展平源）。公共头为 `<asn1/cms/cms.h>`，导出宏 `ASN1_CMS_API`，静态链接时宏 `ASN1_CMS_STATIC`。只读侧 2 个不透明句柄各由 `open` 创建、`close` 销毁（`close(NULL)` 为空操作）：`ContentInfo`、`SignedData`；构造侧另有 1 个 `asn1_cms_builder_t` 句柄，由 `create` 创建、`destroy` 销毁。
 
 语义：
 
@@ -804,6 +804,12 @@ asn1_err_t asn1_pkix_certificate_validity(
 - `ContentInfo.content` 返回 `[0] EXPLICIT` 包装内层 ANY 的完整 TLV（不含 `[0]`），可直接交给 `asn1_cms_signed_data_open`；`certificates` / `crls` 为 `[0]` / `[1] IMPLICIT` SET，逐项按实际标签判别 `ASN1_CMS_CERT_CHOICE_*` / `ASN1_CMS_REVOCATION_CHOICE_*`；只有 `certificate` 分支提供 `subject`/`issuer` 原始 TLV 与 `serialNumber` 十进制文本。
 - `SignerInfo.sid` 分两支：`ASN1_CMS_SID_ISSUER_AND_SERIAL`（`issuer` 原始 TLV + `serial` 十进制文本）与 `ASN1_CMS_SID_SUBJECT_KEY_IDENTIFIER`（内容字节）；不符分支的访问器返回 `ASN1_E_INVALID_ARG`。`version` 与 `CMSVersion` 均原样返回，不做范围校验。
 - 缺省字段（detached 的 `eContent`、无证书/CRL、无 `signedAttrs`/`unsignedAttrs`）返回 `ASN1_OK` 且 `NULL/0`，与字段缺失可区分于错误。
+- 结构构造（写）：`asn1_cms_builder_create` / `asn1_cms_builder_destroy` 提供 ContentInfo（内嵌 SignedData）builder，只做结构组装与 DER 编码。实现只用核心公共 ABI（含 `asn1_node_create_any`）与随包描述表，不新增编码器。生命周期为 create → 设置/追加 → `asn1_cms_builder_encode` → destroy；`destroy(NULL)` 与重复 destroy 安全，无全局状态；输入字节在调用返回时已复制，调用方可立即释放原缓冲。
+- builder 必填项：`CMSVersion`、至少一条 `digestAlgorithm`、`eContentType`、至少一个 signer。缺失或重复设置单值字段返回 `ASN1_E_INVALID_STATE`；OID 非法返回 `ASN1_E_INVALID_VALUE`；非单一完整规范 TLV 返回 `ASN1_E_TRUNCATED` / `ASN1_E_MALFORMED_LENGTH` / `ASN1_E_TRAILING_DATA` / `ASN1_E_NON_CANONICAL` 等核心错误码。`encode` 失败时输出缓冲清零，不产出半成品；成功时缓冲由上下文分配，调用方用 `asn1_buf_release` 归还。
+- `CMSVersion` 与 `SignerInfo.version` 由调用方显式给值，模块不推导、不校验范围。
+- `signedAttrs` / `unsignedAttrs` 原样承载：输入必须是完整、规范的 `SET OF` TLV（外层 `0x31`）；模块只把外层标签改写为 `0xA0` / `0xB1`，长度字节与内容逐字节不变，不重建、不排序。签名覆盖的是 `SET OF` 编码，调用方必须对同一份字节签名。非规范输入返回 `ASN1_E_NON_CANONICAL`。
+- `certificates` / `crls` 只校验“恰好一个完整规范 DER TLV”，不解析内部、不做信任判断；输出按 DER `SET OF` 规则排序。
+- 构造侧不提供签名生成、摘要计算、加解密、证书链校验；`signature` 由调用方给出 OCTET STRING 内容字节，模块只负责结构编码。
 - 模块不新增错误码，全部复用核心 1000–8999 错误空间；模块无全局可变状态，同一 ctx 的并发使用需调用方加锁。
 - 描述表发布机制：`modules/cms/generated/` 检入 `ContentInfo` 与 `SignedData` 两张 `.bin` + 描述头，默认构建不依赖 `asn1c`；`-DASN1_CMS_REGENERATE_TABLE=ON` 在构建期重新生成并与检入产物逐字节比对（`asn1_cms_table_verify`），差异即失败。
 

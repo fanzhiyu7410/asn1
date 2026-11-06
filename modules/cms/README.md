@@ -1,17 +1,17 @@
 # asn1-cms
 
-CMS / PKCS#7 标准结构模块（RFC 5652），以 `.asn1` 描述表驱动，只做**只读结构访问**。
+CMS / PKCS#7 标准结构模块（RFC 5652），以 `.asn1` 描述表驱动，提供**只读结构访问**与**结构构造（写）**两类能力。
 
 ## 模块范围
 
-本轮只读切片覆盖 2 个顶层结构：
+当前切片覆盖 2 个顶层结构，均支持只读打开与结构构造：
 
 | 结构 | 标准 | 说明 |
 | --- | --- | --- |
 | `ContentInfo` | RFC 5652 §3 | `contentType` + `content [0] EXPLICIT ANY` |
 | `SignedData` | RFC 5652 §5 | 版本、摘要算法、封装内容、证书、CRL、签名者信息 |
 
-**不包含**：验签、摘要计算、解密、证书链校验、吊销状态查询、属性语义解析。`ANY` 与属性集合只返回原始 TLV，密码学语义由调用方按 OID 二次解析。
+**不包含**：签名生成/验签、摘要计算、加解密、证书链校验、吊销状态查询、属性语义解析。结构构造只按 RFC 5652 组装节点并输出 DER；`CMSVersion`、算法 OID、eContent、签名值与证书/CRL 原始 DER 全部由调用方给值并原样承载，模块不推导、不校验业务范围。`ANY` 与属性集合只读写原始 TLV，密码学语义由调用方按 OID 二次解析。
 
 后续规划：DetachedSignedData 之外的 CMS 结构（EnvelopedData、EncryptedData、AuthenticatedData、CompressedData）、PKCS#12 均后置，不在本切片实现。
 
@@ -37,6 +37,7 @@ CMS / PKCS#7 标准结构模块（RFC 5652），以 `.asn1` 描述表驱动，�
 - 每次 `open` 加载一次描述表并构建上下文级 schema，生命周期到 `close`；无全局缓存、无进程级单例。
 - 所有访问器返回的指针（OID 文本、大整数十进制文本、字节/TLV）均**借用句柄**，`close` 后立即失效，不得释放。
 - `close(NULL)` 为空操作；`open` 失败时 `*out_*` 置 `NULL` 并返回核心错误码。
+- 构造侧句柄 `asn1_cms_builder_t` 由 `asn1_cms_builder_create` 创建、`asn1_cms_builder_destroy` 销毁；`destroy(NULL)` 与重复 destroy 安全。输入字节在设置/追加调用返回时已复制，调用方可立即释放原缓冲。
 - 模块无全局可变状态；不同句柄互不影响。同一 `ctx` 的并发使用需由调用方加锁。
 
 ## API 概览
@@ -68,6 +69,27 @@ CMS / PKCS#7 标准结构模块（RFC 5652），以 `.asn1` 描述表驱动，�
 | `asn1_cms_signed_data_signer_signature` / `_tlv` | `signature` OCTET STRING 内容字节 / 完整 TLV |
 
 缺省字段（detached 的 `eContent`、无证书/CRL、无 `signedAttrs`/`unsignedAttrs`）返回 `ASN1_OK` 且 `NULL/0`；下标越界返回 `ASN1_E_INVALID_ARG`。
+
+### 结构构造（写）
+
+| 接口 | 说明 |
+| --- | --- |
+| `asn1_cms_builder_create` / `asn1_cms_builder_destroy` | 创建/销毁 builder；重复 destroy 与 `destroy(NULL)` 安全 |
+| `asn1_cms_builder_set_version` | `CMSVersion`，必填；显式给值，不推导、不校验范围；重复设置 `ASN1_E_INVALID_STATE` |
+| `asn1_cms_builder_add_digest_algorithm` | 追加 `digestAlgorithm`（至少一条）；`params` 为空表示 parameters 缺省 |
+| `asn1_cms_builder_set_econtent_type` | `eContentType` OID，必填；重复设置 `ASN1_E_INVALID_STATE` |
+| `asn1_cms_builder_set_econtent` | 设置 `eContent`（完整 DER OCTET STRING TLV）；不设置即 detached |
+| `asn1_cms_builder_add_certificate` / `add_crl` | 追加证书/CRL 原始 DER；只校验单 TLV，输出按 DER `SET OF` 排序 |
+| `asn1_cms_builder_add_signer` | 追加 `SignerInfo`（至少一条）；两种 `sid`、可选 `signedAttrs`/`unsignedAttrs` |
+| `asn1_cms_builder_encode` | 组装并编码 `ContentInfo`（`contentType = id-signedData`）到调用方缓冲 |
+
+语义约定：
+
+- **版本**：`CMSVersion` 与 `SignerInfo.version` 由调用方显式给值，模块不推导、不校验范围。
+- **signedAttrs 原样承载**：输入必须是完整、规范的 `SET OF` TLV（外层 `0x31`）；模块只把外层标签改写为 `0xA0`（`unsignedAttrs` 为 `0xB1`），长度字节与内容逐字节不变，不重建、不排序。签名覆盖的是 `SET OF` 编码，调用方必须对同一份字节签名，否则验签失败。非规范输入返回 `ASN1_E_NON_CANONICAL`。
+- **证书/CRL 不解析**：只校验“恰好一个完整规范 DER TLV”，不解析证书内部、不做信任判断；输出按 DER `SET OF` 规则排序。
+- **错误模型**：必填缺失、重复设置单值字段返回 `ASN1_E_INVALID_STATE`；OID 非法返回 `ASN1_E_INVALID_VALUE`；非单一合法 TLV 返回 `ASN1_E_TRUNCATED` / `ASN1_E_MALFORMED_LENGTH` / `ASN1_E_TRAILING_DATA` / `ASN1_E_NON_CANONICAL` 等核心错误码。失败不产出半成品缓冲。
+- **输出所有权**：成功时 `asn1_buf_t` 由上下文分配，调用方用 `asn1_buf_release` 归还。
 
 ## 最小示例
 
@@ -102,6 +124,32 @@ if (asn1_cms_content_info_open(ctx, der, der_size, &info) == ASN1_OK) {
 asn1_ctx_destroy(ctx);
 ```
 
+构造侧示例（detached，最小字段）：
+
+```c
+asn1_cms_builder_t *builder = NULL;
+if (asn1_cms_builder_create(ctx, &builder) == ASN1_OK) {
+    asn1_cms_builder_set_version(builder, 1);
+    asn1_cms_builder_add_digest_algorithm(
+        builder, "2.16.840.1.101.3.4.2.1", NULL, 0);
+    asn1_cms_builder_set_econtent_type(builder, "1.2.840.113549.1.7.1");
+    /* 不调用 set_econtent 即 detached */
+    asn1_cms_builder_add_signer(
+        builder, 1, ASN1_CMS_SID_ISSUER_AND_SERIAL,
+        issuer_tlv, issuer_size, serial_tlv, serial_size,
+        "2.16.840.1.101.3.4.2.1", NULL, 0,
+        NULL, 0, "1.2.840.113549.1.1.1", NULL, 0,
+        signature, signature_size, NULL, 0);
+
+    asn1_buf_t der;
+    if (asn1_cms_builder_encode(builder, &der) == ASN1_OK) {
+        /* 使用 der.data / der.size */
+        asn1_buf_release(ctx, &der);
+    }
+    asn1_cms_builder_destroy(builder);
+}
+```
+
 ## 证书分支与原始 TLV
 
 `certificates` 是 `[0] IMPLICIT SET OF CertificateChoices`，模块按实际标签判别分支：
@@ -131,8 +179,9 @@ cmake --build build-cms-regen --target asn1_cms_table_verify
 
 - 样本：`tests/data/cms_rsa_attached.der`（attached，证书 + signedAttrs）、`cms_rsa_detached.der`（detached，证书 + signedAttrs）、`cms_rsa_minimal.der`（无证书、无 signedAttrs）、`cms_rsa_ec_multicert.der`（RSA + ECDSA 多证书多签名者）、`cms_rsa_keyid.der`（sid 为 subjectKeyIdentifier）。由 `python scripts/gen_test_data.py --cms` 用已提交的证书/私钥生成。
 - 用例：`tests/cms/test_cms_structures.c`，覆盖正例字段读取、detached 无 `eContent`、多证书逐项、SignerInfo 各字段（含两种 sid 分支）、空参/非 CMS/截断负例。
+- 构造用例：`tests/cms/test_cms_builder.c`，覆盖 attached/detached、单/多证书、两种 `sid`、带 `signedAttrs`、无证书最小样本、必填缺失/重复设置/非法 TLV 负例；5 份样本做 decode → builder 重建 → 编码，规范 DER 源逐字节一致。
 - 同时纳入差分（OpenSSL `asn1parse` 逐样本对照）与 fuzz 语料。
 
 ## 状态
 
-0.1.0：ContentInfo / SignedData 只读字段访问；6 组 C 用例（attached、detached、最小样本、多证书、两种 sid 分支、负例）在 MinGW（GCC 13.2，`-Werror`）下构建与 ctest 通过。
+0.1.0：ContentInfo / SignedData 只读字段访问与结构构造（builder + DER 编码）；只读与构造 C 用例在 MinGW（GCC 13.2，`-Werror`）下构建与 ctest 通过，5 份样本构造往返逐字节一致。构造侧不生成签名/摘要、不做加解密、不校验证书链。
