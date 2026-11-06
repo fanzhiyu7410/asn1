@@ -1612,6 +1612,87 @@ int main(void)
         asn1_schema_destroy(schema);
     }
 
+    {
+        /* 高 tag 号按 base-128 变长编码；schema 编码与通用编码均往返稳定。 */
+        static const uint8_t kTag31[4] = {0x9F, 0x1F, 0x01, 0x05};
+        static const uint8_t kTag127[4] = {0x9F, 0x7F, 0x01, 0x05};
+        static const uint8_t kTag128[5] = {0x9F, 0x81, 0x00, 0x01, 0x05};
+        static const uint8_t kTag16383[5] = {0x9F, 0xFF, 0x7F, 0x01, 0x05};
+        static const uint8_t kTag16384[6] = {0x9F, 0x81, 0x80, 0x00,
+                                             0x01, 0x05};
+        static const uint8_t kTag2097151[6] = {0x9F, 0xFF, 0xFF, 0x7F,
+                                               0x01, 0x05};
+        static const uint8_t kTagMax[8] = {0x9F, 0x8F, 0xFF, 0xFF, 0xFF,
+                                           0x7F, 0x01, 0x05};
+
+        struct HighTagCase {
+            uint32_t number;
+            const uint8_t *tlv;
+            size_t size;
+        };
+        static const struct HighTagCase kCases[] = {
+            {31, kTag31, sizeof(kTag31)},
+            {127, kTag127, sizeof(kTag127)},
+            {128, kTag128, sizeof(kTag128)},
+            {16383, kTag16383, sizeof(kTag16383)},
+            {16384, kTag16384, sizeof(kTag16384)},
+            {2097151, kTag2097151, sizeof(kTag2097151)},
+            {4294967295u, kTagMax, sizeof(kTagMax)},
+        };
+
+        for (size_t i = 0; i < sizeof(kCases) / sizeof(kCases[0]); ++i) {
+            asn1_schema_t *schema = NULL;
+            ASN1_TEST_CHECK(asn1_schema_create(ctx, ASN1_TAG_MODE_DEFAULT,
+                                               &schema) == ASN1_OK);
+            uint32_t typeId = 0;
+            asn1_type_desc_t type =
+                make_type("HighTag", ASN1_TYPE_KIND_SIMPLE, ASN1_TAG_CONTEXT,
+                          kCases[i].number, ASN1_TAG_MODE_IMPLICIT, 0);
+            ASN1_TEST_CHECK(asn1_schema_add_type(schema, &type, &typeId) ==
+                            ASN1_OK);
+            ASN1_TEST_CHECK(asn1_schema_set_root(schema, typeId) == ASN1_OK);
+            ASN1_TEST_CHECK(asn1_schema_seal(schema) == ASN1_OK);
+
+            asn1_doc_t *doc = NULL;
+            ASN1_TEST_CHECK(decode_schema(ctx, schema, kCases[i].tlv,
+                                          kCases[i].size, 0, &doc) == ASN1_OK);
+            asn1_encode_options_t options;
+            asn1_encode_options_init(&options);
+            options.schema = schema;
+            asn1_buf_t buf;
+            memset(&buf, 0, sizeof(buf));
+            ASN1_TEST_CHECK(asn1_encode_buffer(ctx, doc, &options, &buf) ==
+                            ASN1_OK);
+            ASN1_TEST_CHECK(bytes_equal(buf.data, buf.size, kCases[i].tlv,
+                                        kCases[i].size));
+            asn1_doc_destroy(doc);
+
+            /* 编码结果再解码：内容字节与原始输入一致。 */
+            ASN1_TEST_CHECK(decode_schema(ctx, schema, buf.data, buf.size, 0,
+                                          &doc) == ASN1_OK);
+            const uint8_t *content = NULL;
+            size_t contentSize = 0;
+            ASN1_TEST_CHECK(asn1_node_content(asn1_doc_root(doc), &content,
+                                              &contentSize) == ASN1_OK);
+            ASN1_TEST_CHECK(content != NULL && contentSize == 1 &&
+                            content[0] == 0x05);
+            asn1_doc_destroy(doc);
+            ASN1_TEST_CHECK(asn1_buf_release(ctx, &buf) == ASN1_OK);
+
+            /* 通用编码（无 schema）同样按 base-128 写出。 */
+            ASN1_TEST_CHECK(decode_schema(ctx, schema, kCases[i].tlv,
+                                          kCases[i].size, 0, &doc) == ASN1_OK);
+            memset(&buf, 0, sizeof(buf));
+            ASN1_TEST_CHECK(asn1_encode_buffer(ctx, doc, NULL, &buf) ==
+                            ASN1_OK);
+            ASN1_TEST_CHECK(bytes_equal(buf.data, buf.size, kCases[i].tlv,
+                                        kCases[i].size));
+            asn1_doc_destroy(doc);
+            ASN1_TEST_CHECK(asn1_buf_release(ctx, &buf) == ASN1_OK);
+            asn1_schema_destroy(schema);
+        }
+    }
+
     asn1_ctx_destroy(ctx);
     return 0;
 }

@@ -92,7 +92,17 @@ void typeTag(const Schema *schema, const SchemaType *type, bool unwrapped,
 
 size_t tagFieldBytes(uint32_t number)
 {
-    return number < 31 ? 1 : 2;
+    if (number < 31) {
+        return 1;
+    }
+    /* 首字节后跟若干 base-128 续字节，续字节数至少 1。 */
+    size_t groups = 1;
+    uint32_t remaining = number >> 7;
+    while (remaining != 0) {
+        ++groups;
+        remaining >>= 7;
+    }
+    return 1 + groups;
 }
 
 size_t lengthFieldBytes(size_t length)
@@ -121,7 +131,24 @@ void writeTag(uint8_t *dst, uint32_t tagClass, uint32_t tagNumber,
         return;
     }
     dst[0] = static_cast<uint8_t>(first | 0x1FU);
-    dst[1] = static_cast<uint8_t>(tagNumber & 0xFFU);
+    /* base-128 变长：31–127 一个续字节，128–16383 两个，依此类推。
+       uint32_t 最多需要 5 个续字节，parts 容量覆盖全部取值。 */
+    uint8_t parts[5] = {0};
+    size_t count = 0;
+    uint32_t remaining = tagNumber;
+    while (remaining != 0) {
+        parts[sizeof(parts) - 1 - count] =
+            static_cast<uint8_t>(remaining & 0x7FU);
+        ++count;
+        remaining >>= 7;
+    }
+    for (size_t i = 0; i < count; ++i) {
+        uint8_t byte = parts[sizeof(parts) - count + i];
+        if (i + 1 < count) {
+            byte |= 0x80U;
+        }
+        dst[1 + i] = byte;
+    }
 }
 
 size_t writeLength(uint8_t *dst, size_t length)
