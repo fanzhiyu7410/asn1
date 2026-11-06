@@ -676,6 +676,31 @@ asn1_cms_signed_data_signer_sid_serial(
     return asn1_node_get_bigint_decimal(serial, out_decimal, out_size);
 }
 
+/* serialNumber 完整原始 TLV（供结构构造侧原样承载，避免十进制往返）。 */
+extern "C" ASN1_CMS_API asn1_err_t
+asn1_cms_signed_data_signer_sid_serial_tlv(
+    const asn1_cms_signed_data_t *signed_data, size_t index,
+    const uint8_t **out_data, size_t *out_size)
+{
+    if (signed_data == nullptr || out_data == nullptr || out_size == nullptr) {
+        return ASN1_E_INVALID_ARG;
+    }
+    const asn1_node_t *sid = nullptr;
+    asn1_err_t status = signerField(signed_data, index, "sid", &sid);
+    if (status != ASN1_OK) {
+        return status;
+    }
+    if (signerIdChoiceKind(sid) != ASN1_CMS_SID_ISSUER_AND_SERIAL) {
+        return ASN1_E_INVALID_ARG;
+    }
+    const asn1_node_t *serial = nestedField(sid, "serialNumber");
+    if (serial == nullptr) {
+        return ASN1_E_SCHEMA_FIELD;
+    }
+    *out_data = asn1_node_tlv(serial, out_size);
+    return (*out_data == nullptr) ? ASN1_E_INVALID_STATE : ASN1_OK;
+}
+
 /*
  * SubjectKeyIdentifier 是 `[0] IMPLICIT OCTET STRING`：节点本身是
  * context 标签的基本类型，不满足 asn1_node_get_octets 的 UNIVERSAL 4

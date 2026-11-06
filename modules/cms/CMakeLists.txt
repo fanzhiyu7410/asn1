@@ -13,6 +13,7 @@ project(
 )
 
 set(ASN1_CMS_SOURCES
+  src/asn1_cms_builder.cpp
   src/asn1_cms_structures.cpp
   src/asn1_cms_version.cpp
   src/cms_content_info_table.cpp

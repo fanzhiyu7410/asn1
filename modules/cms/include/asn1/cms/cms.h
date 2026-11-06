@@ -26,6 +26,7 @@
 #include <stdint.h>
 
 #include <asn1/asn1_build.h>
+#include <asn1/asn1_encode.h>
 #include <asn1/asn1_node.h>
 
 #if defined(ASN1_CMS_STATIC)
@@ -222,6 +223,11 @@ ASN1_CMS_API asn1_err_t asn1_cms_signed_data_signer_sid_serial(
     const asn1_cms_signed_data_t *signed_data, size_t index,
     const char **out_decimal, size_t *out_size);
 
+/* sid 为 issuerAndSerialNumber 时的 serialNumber 完整原始 TLV。 */
+ASN1_CMS_API asn1_err_t asn1_cms_signed_data_signer_sid_serial_tlv(
+    const asn1_cms_signed_data_t *signed_data, size_t index,
+    const uint8_t **out_data, size_t *out_size);
+
 /* sid 为 subjectKeyIdentifier 时的内容字节（不含 tag/len）。 */
 ASN1_CMS_API asn1_err_t
 asn1_cms_signed_data_signer_sid_subject_key_identifier(
@@ -265,6 +271,110 @@ ASN1_CMS_API asn1_err_t asn1_cms_signed_data_signer_signature_tlv(
 ASN1_CMS_API asn1_err_t asn1_cms_signed_data_signer_unsigned_attrs(
     const asn1_cms_signed_data_t *signed_data, size_t index,
     const uint8_t **out_data, size_t *out_size);
+
+/* ------------------------------------------------------------------------- */
+/* 结构构造（写）：ContentInfo / SignedData builder                            */
+/* ------------------------------------------------------------------------- */
+
+/*
+ * 只做结构构造与 DER 编码：证书/CRL 原始 DER、算法 OID、eContent、签名值、
+ * 属性集合等全部由调用方给值，模块原样承载。不做签名生成、摘要计算、
+ * 加密/解密、证书链校验、时间与随机数生成。
+ *
+ * 责任边界：
+ * - CMSVersion 由调用方通过 asn1_cms_builder_set_version 显式给出，模块不
+ *   推导、不校验范围；
+ * - signedAttrs / unsignedAttrs 原样承载：输入必须是完整、规范的
+ *   `SET OF` TLV（外层 `0x31`）；模块只把外层标签改写为 `0xA0`（
+ *   signedAttrs）或 `0xB1`（unsignedAttrs），长度字节与内容逐字节不变，
+ *   不重建、不排序。签名覆盖的是 SET OF 编码，调用方必须对同一份字节
+ *   签名，否则验签失败；
+ * - certificates / crls 只校验“恰好一个完整规范 DER TLV”，不解析证书内部、
+ *   不做信任判断；输出按 DER `SET OF` 规则排序。
+ *
+ * 生命周期：create 建立句柄，逐项设置/追加，encode 编码到调用方缓冲，
+ * destroy 释放。destroy(NULL) 与重复 destroy 安全；句柄没有全局状态。
+ * 所有输入字节在调用返回时已复制进模块内存，调用方可立即释放原缓冲。
+ */
+
+typedef struct asn1_cms_builder asn1_cms_builder_t;
+
+/* 创建/销毁 builder。create 失败时 *out_builder 置 NULL。 */
+ASN1_CMS_API asn1_err_t asn1_cms_builder_create(
+    asn1_ctx_t *ctx, asn1_cms_builder_t **out_builder);
+
+ASN1_CMS_API void asn1_cms_builder_destroy(asn1_cms_builder_t *builder);
+
+/*
+ * 设置 CMSVersion（SignedData.version）。必填，重复设置返回
+ * ASN1_E_INVALID_STATE。值原样写入，不推导、不校验范围。
+ */
+ASN1_CMS_API asn1_err_t asn1_cms_builder_set_version(
+    asn1_cms_builder_t *builder, int64_t version);
+
+/*
+ * 追加 digestAlgorithms 条目（至少一条）。oid 为点分十进制；params 为
+ * 可选的完整 DER TLV（为空表示 parameters 缺省）。
+ */
+ASN1_CMS_API asn1_err_t asn1_cms_builder_add_digest_algorithm(
+    asn1_cms_builder_t *builder, const char *oid, const uint8_t *params,
+    size_t params_size);
+
+/* 设置 encapContentInfo.eContentType OID。必填，重复设置返回 INVALID_STATE。 */
+ASN1_CMS_API asn1_err_t asn1_cms_builder_set_econtent_type(
+    asn1_cms_builder_t *builder, const char *oid);
+
+/*
+ * 设置 encapContentInfo.eContent。econtent 必须是完整 DER OCTET STRING TLV
+ * （tag 0x04）；模块取其中的内容字节。不设置即 detached。重复设置返回
+ * ASN1_E_INVALID_STATE。
+ */
+ASN1_CMS_API asn1_err_t asn1_cms_builder_set_econtent(
+    asn1_cms_builder_t *builder, const uint8_t *econtent, size_t econtent_size);
+
+/*
+ * 追加证书 / CRL：各为恰好一个完整、规范的 DER TLV。模块不解析内部字段，
+ * 只做单 TLV 与规范性校验；输出按 DER SET OF 排序。
+ */
+ASN1_CMS_API asn1_err_t asn1_cms_builder_add_certificate(
+    asn1_cms_builder_t *builder, const uint8_t *tlv, size_t tlv_size);
+
+ASN1_CMS_API asn1_err_t asn1_cms_builder_add_crl(
+    asn1_cms_builder_t *builder, const uint8_t *tlv, size_t tlv_size);
+
+/*
+ * 追加 SignerInfo（至少一条）。
+ *
+ * sid_kind = ASN1_CMS_SID_ISSUER_AND_SERIAL：
+ *   sid1 = issuer Name 的完整 DER TLV，sid2 = serialNumber INTEGER 的完整
+ *   DER TLV；两者都必须是完整规范 TLV。
+ * sid_kind = ASN1_CMS_SID_SUBJECT_KEY_IDENTIFIER：
+ *   sid1 = subjectKeyIdentifier 内容字节（不含 tag/len），sid2 必须为空。
+ *
+ * digest_params / signature_params 为空表示 parameters 缺省，否则为完整
+ * DER TLV。signed_attrs_tlv / unsigned_attrs_tlv 为空表示缺省，否则为
+ * 完整 SET OF TLV（外层 0x31），按上文规则原样承载并改写外层标签。
+ * signature 为 OCTET STRING 内容字节。
+ */
+ASN1_CMS_API asn1_err_t asn1_cms_builder_add_signer(
+    asn1_cms_builder_t *builder, int64_t version, int32_t sid_kind,
+    const uint8_t *sid1, size_t sid1_size, const uint8_t *sid2,
+    size_t sid2_size, const char *digest_oid, const uint8_t *digest_params,
+    size_t digest_params_size, const uint8_t *signed_attrs_tlv,
+    size_t signed_attrs_size, const char *signature_oid,
+    const uint8_t *signature_params, size_t signature_params_size,
+    const uint8_t *signature, size_t signature_size,
+    const uint8_t *unsigned_attrs_tlv, size_t unsigned_attrs_size);
+
+/*
+ * 组装并编码 ContentInfo（contentType = id-signedData）。
+ *
+ * 成功时 out_buf 由上下文分配，调用方用 asn1_buf_release 归还；失败时
+ * out_buf 清零且不产出半成品。必填项缺失（version / digestAlgorithm /
+ * eContentType / signer）返回 ASN1_E_INVALID_STATE。
+ */
+ASN1_CMS_API asn1_err_t asn1_cms_builder_encode(
+    const asn1_cms_builder_t *builder, asn1_buf_t *out_buf);
 
 #ifdef __cplusplus
 }
