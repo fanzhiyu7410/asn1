@@ -27,6 +27,14 @@ PKCS_BINS = [
     ]
 ]
 
+CMS_BINS = [
+    os.path.join(ROOT, "modules", "cms", "generated", name)
+    for name in [
+        "cms_content_info_schema.bin",
+        "cms_signed_data_schema.bin",
+    ]
+]
+
 # 需要二进制种子（DER/BER）的 harness。
 BIN_HARNESSES = [
     "decode_ber",
@@ -49,6 +57,11 @@ REAL_DERS = [
     "key_rsa_pkcs8_encrypted.der",
     "key_rsa_pkcs1_private.der",
     "key_rsa_pkcs1_public.der",
+    "cms_rsa_attached.der",
+    "cms_rsa_detached.der",
+    "cms_rsa_minimal.der",
+    "cms_rsa_ec_multicert.der",
+    "cms_rsa_keyid.der",
 ]
 
 # 合成二进制种子：覆盖未知扩展/ANY 三形态/EXPLICIT ANY/不定长（单层+嵌套）/
@@ -372,11 +385,11 @@ def main():
     for name, data in SCHEMA_DECODE_SYNTH.items():
         write_bytes(os.path.join(hdir, name), data)
 
-    # 2) schema_load：真实 PKIX/PKCS 表字节（最大攻击面）+ 空/垃圾。
+    # 2) schema_load：真实 PKIX/PKCS/CMS 表字节（最大攻击面）+ 空/垃圾。
     hdir = os.path.join(CORPUS, "schema_load")
     write_bytes(os.path.join(hdir, "pkix_schema.bin"),
                 open(PKIX_BIN, "rb").read())
-    for path in PKCS_BINS:
+    for path in PKCS_BINS + CMS_BINS:
         write_bytes(os.path.join(hdir, os.path.basename(path)),
                     open(path, "rb").read())
     write_bytes(os.path.join(hdir, "empty"), b"")

@@ -43,11 +43,11 @@ CI 用同样参数跑短预算，并记录 `-print_final_stats` 的迭代数。
 
 - 语料在 `corpus/<harness>/`，按 harness 分开、检入仓库，供 CI 复用。
 - 由 `scripts/gen_fuzz_corpus.py` 确定性生成：真实 DER 样本
-  （`tests/data/*.der`）+ 合成二进制样本 + PKIX 表字节（`schema_load`）+
-  `.asn1` 文本样本（`fuzz_asn1c`）。
+  （`tests/data/*.der`，含 CMS ContentInfo/SignedData）+ 合成二进制样本 +
+  PKIX / PKCS / CMS 表字节（`schema_load`）+ `.asn1` 文本样本（`fuzz_asn1c`）。
 - 合成样本覆盖：未知扩展字段、ANY 三形态、EXPLICIT ANY、不定长（单层/嵌套）、
   截断、超长长度字段、多字节 tag、SET 乱序、非最短长度、时间格式变体、空输入。
 - 扩展方式：向 `scripts/gen_fuzz_corpus.py` 的 `SYNTH_BINARY` / `REAL_DERS` /
-  `SYNTH_ASN1C` 追加条目，重跑脚本并检入新产物；或直接向对应
+  `PKCS_BINS` / `CMS_BINS` / `SYNTH_ASN1C` 追加条目，重跑脚本并检入新产物；或直接向对应
   `corpus/<harness>/` 追加小文件。禁止检入大体积样本。
 - 崩溃样本应放入 `tests/fuzz/regressions/` 并纳入常规 CTest（当前尚未产生）。
