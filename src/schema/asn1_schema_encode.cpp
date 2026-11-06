@@ -55,14 +55,26 @@ void typeTag(const Schema *schema, const SchemaType *type, bool unwrapped,
     switch (type->kind) {
     case ASN1_TYPE_KIND_SEQUENCE:
     case ASN1_TYPE_KIND_SEQUENCE_OF:
-        *outClass = ASN1_TAG_UNIVERSAL;
-        *outNumber = 16;
+        /* IMPLICIT 覆盖的构造类型改用类型自身的非通用标签；显式包装剥离后
+           回到通用 SEQUENCE 标签。 */
+        if (!unwrapped && type->tagClass != ASN1_TAG_UNIVERSAL) {
+            *outClass = type->tagClass;
+            *outNumber = type->tagNumber;
+        } else {
+            *outClass = ASN1_TAG_UNIVERSAL;
+            *outNumber = 16;
+        }
         *outConstructed = true;
         return;
     case ASN1_TYPE_KIND_SET:
     case ASN1_TYPE_KIND_SET_OF:
-        *outClass = ASN1_TAG_UNIVERSAL;
-        *outNumber = 17;
+        if (!unwrapped && type->tagClass != ASN1_TAG_UNIVERSAL) {
+            *outClass = type->tagClass;
+            *outNumber = type->tagNumber;
+        } else {
+            *outClass = ASN1_TAG_UNIVERSAL;
+            *outNumber = 17;
+        }
         *outConstructed = true;
         return;
     default:
@@ -523,7 +535,10 @@ bool sizeOf(const EncState &st, uint32_t typeId, const Node *node,
         *outError = ASN1_E_INVALID_STATE;
         return false;
     }
-    if (type->kind == ASN1_TYPE_KIND_ANY) {
+    /* ANY 节点不按声明结构展开：无论其所在字段声明为何种类型，都只写回
+       节点保留的原始字节。解码得到的 ANY 只出现在 ANY 字段上，因此该规则
+       不改变既有解码文档的编码结果。 */
+    if (type->kind == ASN1_TYPE_KIND_ANY || nodeIsAny(node)) {
         return sizeAny(st, type, node, outSize, outError);
     }
     if (!unwrapped &&
@@ -685,8 +700,8 @@ void writeSorted(const uint8_t *buffer, size_t *offsets, size_t *sizes,
 }
 
 bool writeSetOf(const EncState &st, uint32_t typeId, const Node *node,
-                uint8_t *dst, size_t capacity, size_t *outUsed,
-                asn1_err_t *outError)
+                uint32_t tagClass, uint32_t tagNumber, uint8_t *dst,
+                size_t capacity, size_t *outUsed, asn1_err_t *outError)
 {
     size_t count = 0;
     size_t total = 0;
@@ -700,14 +715,14 @@ bool writeSetOf(const EncState &st, uint32_t typeId, const Node *node,
         ++count;
     }
     const size_t header =
-        tagFieldBytes(17) + lengthFieldBytes(total);
+        tagFieldBytes(tagNumber) + lengthFieldBytes(total);
     if (header + total > capacity) {
         *outError = ASN1_E_OUTPUT_LIMIT;
         return false;
     }
     if (count == 0) {
-        writeTag(dst, ASN1_TAG_UNIVERSAL, 17, true);
-        writeLength(dst + 1, 0);
+        writeTag(dst, tagClass, tagNumber, true);
+        writeLength(dst + tagFieldBytes(tagNumber), 0);
         *outUsed = header;
         return true;
     }
@@ -752,8 +767,8 @@ bool writeSetOf(const EncState &st, uint32_t typeId, const Node *node,
     }
     writeSorted(temp, offsets, sizes, count);
 
-    writeTag(dst, ASN1_TAG_UNIVERSAL, 17, true);
-    writeLength(dst + 1, total);
+    writeTag(dst, tagClass, tagNumber, true);
+    writeLength(dst + tagFieldBytes(tagNumber), total);
     size_t pos = header;
     for (size_t i = 0; i < count; ++i) {
         std::memcpy(dst + pos, temp + offsets[i], sizes[i]);
@@ -996,7 +1011,7 @@ bool writeOf(const EncState &st, uint32_t typeId, const Node *node,
         *outError = ASN1_E_INVALID_STATE;
         return false;
     }
-    if (type->kind == ASN1_TYPE_KIND_ANY) {
+    if (type->kind == ASN1_TYPE_KIND_ANY || nodeIsAny(node)) {
         return writeAny(st, type, node, dst, capacity, outUsed, outError);
     }
     if (!unwrapped &&
@@ -1035,11 +1050,6 @@ bool writeOf(const EncState &st, uint32_t typeId, const Node *node,
         return writeOf(st, type->fields[index].typeId, node, false, dst,
                        capacity, outUsed, outError);
     }
-    if (type->kind == ASN1_TYPE_KIND_SET_OF) {
-        return writeSetOf(st, type->elementTypeId, node, dst, capacity, outUsed,
-                          outError);
-    }
-
     size_t content = 0;
     if (!sizeOf(st, typeId, node, unwrapped, &content, outError)) {
         return false;
@@ -1059,6 +1069,11 @@ bool writeOf(const EncState &st, uint32_t typeId, const Node *node,
     if (type->kind == ASN1_TYPE_KIND_SET) {
         return writeSet(st, type, node, cls, num, dst, capacity, outUsed,
                         outError);
+    }
+    if (type->kind == ASN1_TYPE_KIND_SET_OF) {
+        /* [n] IMPLICIT SET OF 使用类型自身的上下文标签。 */
+        return writeSetOf(st, type->elementTypeId, node, cls, num, dst,
+                          capacity, outUsed, outError);
     }
     if (type->kind == ASN1_TYPE_KIND_SEQUENCE_OF) {
         /* 顺序编码子元素。content 需按子元素 TLV 之和计算，不能复用
