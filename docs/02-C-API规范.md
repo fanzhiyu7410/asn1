@@ -786,6 +786,21 @@ asn1_err_t asn1_pkix_certificate_validity(
 - 模块不新增错误码，全部复用核心 1000–8999 错误空间；模块无全局可变状态，同一 ctx 的并发使用需调用方加锁。
 - 描述表发布机制：`modules/pkcs/generated/` 检入 `.bin` + 描述头，默认构建不依赖 `asn1c`；`-DASN1_PKCS_REGENERATE_TABLE=ON` 在构建期重新生成并与检入产物逐字节比对，差异即失败。
 
+### 6.10 asn1-cms 模块 API
+
+`asn1-cms` 是独立包（`find_package(asn1-cms CONFIG)`），只依赖核心公共 C ABI，**不依赖 asn1-pkix**（ADR-0012；从 `SignedData` 可达的 PKIX 类型已复制进本模块展平源）。公共头为 `<asn1/cms/cms.h>`，导出宏 `ASN1_CMS_API`，静态链接时宏 `ASN1_CMS_STATIC`。2 个不透明句柄各由 `open` 创建、`close` 销毁（`close(NULL)` 为空操作）：`ContentInfo`、`SignedData`。
+
+语义：
+
+- `open` 用模块随包发布的描述表加载 schema，再以 `ASN1_ENCODING_DER` + `ASN1_DECODE_COPY_INPUT` 解码；输入被复制进文档，调用方可在返回后释放。空参 `ASN1_E_INVALID_ARG`，分配失败 `ASN1_E_NOMEM`，截断/尾随/语法错误/结构不符由核心错误码直接返回。
+- 句柄借用调用方的 `asn1_ctx_t`，ctx 必须比句柄存活更久；访问器返回的指针（OID 文本、大整数十进制文本、字节/TLV）借用句柄，`close` 后失效；下标越界 `ASN1_E_INVALID_ARG`。
+- 只读边界：不验签、不计算摘要、不解密、不校验证书链、不查询吊销状态。`ContentInfo.content`、`AlgorithmIdentifier.parameters`、`SignerInfo.signedAttrs`/`unsignedAttrs`、属性值等一律只给完整原始 TLV/字节，`ANY` 不按 OID 展开，密码学语义由调用方二次解析。
+- `ContentInfo.content` 返回 `[0] EXPLICIT` 包装内层 ANY 的完整 TLV（不含 `[0]`），可直接交给 `asn1_cms_signed_data_open`；`certificates` / `crls` 为 `[0]` / `[1] IMPLICIT` SET，逐项按实际标签判别 `ASN1_CMS_CERT_CHOICE_*` / `ASN1_CMS_REVOCATION_CHOICE_*`；只有 `certificate` 分支提供 `subject`/`issuer` 原始 TLV 与 `serialNumber` 十进制文本。
+- `SignerInfo.sid` 分两支：`ASN1_CMS_SID_ISSUER_AND_SERIAL`（`issuer` 原始 TLV + `serial` 十进制文本）与 `ASN1_CMS_SID_SUBJECT_KEY_IDENTIFIER`（内容字节）；不符分支的访问器返回 `ASN1_E_INVALID_ARG`。`version` 与 `CMSVersion` 均原样返回，不做范围校验。
+- 缺省字段（detached 的 `eContent`、无证书/CRL、无 `signedAttrs`/`unsignedAttrs`）返回 `ASN1_OK` 且 `NULL/0`，与字段缺失可区分于错误。
+- 模块不新增错误码，全部复用核心 1000–8999 错误空间；模块无全局可变状态，同一 ctx 的并发使用需调用方加锁。
+- 描述表发布机制：`modules/cms/generated/` 检入 `ContentInfo` 与 `SignedData` 两张 `.bin` + 描述头，默认构建不依赖 `asn1c`；`-DASN1_CMS_REGENERATE_TABLE=ON` 在构建期重新生成并与检入产物逐字节比对（`asn1_cms_table_verify`），差异即失败。
+
 ## 7. 错误信息获取
 
 ```c
