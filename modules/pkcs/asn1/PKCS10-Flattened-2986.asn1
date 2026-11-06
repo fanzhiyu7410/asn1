@@ -20,8 +20,10 @@ CertificationRequestInfo ::= SEQUENCE {
     subjectPKInfo   SubjectPublicKeyInfo,
     attributes      [0] IMPLICIT Attributes }
 
--- 原版为 INTEGER { v1(0) } (v1,...)；扩展标记不影响 DER 结构，展平后省略。
-Version ::= INTEGER { v1(0) }
+-- 原版为 INTEGER { v1(0) } (v1,...)。值名与扩展标记不影响 DER 结构，
+-- 展平后使用无约束 INTEGER：非 0 版本是合法 DER，应按原值返回，不在
+-- 解码期被值名约束拒绝。
+Version ::= INTEGER
 
 -- X.501 Name 的单一选择项 rdnSequence；展平后直接使用 RDNSequence。
 Name ::= RDNSequence

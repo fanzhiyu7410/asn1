@@ -773,6 +773,19 @@ asn1_err_t asn1_pkix_certificate_validity(
 
 描述表发布机制：`modules/pkix/generated/pkix_schema.{h,bin}` 检入仓库并随源码发布；默认构建直接使用检入产物，无需 `asn1c`。`-DASN1_PKIX_REGENERATE_TABLE=ON` 时在构建期用 `asn1c` 从 `PKIX-Flattened-2009.asn1` 重新生成，并与检入产物逐字节比对，任一差异即构建失败。
 
+### 6.9 asn1-pkcs 模块 API
+
+`asn1-pkcs` 是独立包（`find_package(asn1-pkcs CONFIG)`），只依赖核心公共 C ABI。公共头为 `<asn1/pkcs/pkcs.h>`，导出宏 `ASN1_PKCS_API`，静态链接时宏 `ASN1_PKCS_STATIC`。5 个不透明句柄各由 `open` 创建、`close` 销毁（`close(NULL)` 为空操作）：`PrivateKeyInfo`、`EncryptedPrivateKeyInfo`、`RSAPublicKey`、`RSAPrivateKey`、`CertificationRequest`。
+
+语义：
+
+- `open` 用模块随包发布的描述表加载 schema，再以 `ASN1_ENCODING_DER` + `ASN1_DECODE_COPY_INPUT` 解码；输入被复制进文档，调用方可在返回后释放。空参 `ASN1_E_INVALID_ARG`，分配失败 `ASN1_E_NOMEM`，截断/尾随/语法错误/结构不符由核心错误码直接返回。
+- 句柄借用调用方的 `asn1_ctx_t`，ctx 必须比句柄存活更久；访问器返回的指针（OID 文本、大整数十进制文本、字节/TLV、节点）借用句柄，`close` 后失效。
+- 只读边界：PKCS#8 不解密，PKCS#1 不做 RSA 运算/填充/签名/加密，PKCS#10 不验证签名；`AlgorithmIdentifier.parameters` 与 `Attribute.values` 只返回完整原始 TLV，缺省时返回 `ASN1_OK` 且 `NULL/0`。
+- `asn1_pkcs_certification_request_version` 对 RFC 2986 的 `version` 采取**返回成功、原样给值**：非 0 是合法 DER 输入，不做范围校验，不静默改写为 0，不发告警、不新增错误码；需要断言 v1 的调用方自行比较 `*out_version == 0`。
+- 模块不新增错误码，全部复用核心 1000–8999 错误空间；模块无全局可变状态，同一 ctx 的并发使用需调用方加锁。
+- 描述表发布机制：`modules/pkcs/generated/` 检入 `.bin` + 描述头，默认构建不依赖 `asn1c`；`-DASN1_PKCS_REGENERATE_TABLE=ON` 在构建期重新生成并与检入产物逐字节比对，差异即失败。
+
 ## 7. 错误信息获取
 
 ```c

@@ -232,7 +232,14 @@ ASN1_PKCS_API asn1_err_t asn1_pkcs_certification_request_open(
 ASN1_PKCS_API void asn1_pkcs_certification_request_close(
     asn1_pkcs_certification_request_t *request);
 
-/* certificationRequestInfo.version（RFC 2986 定义 v1 = 0）。 */
+/*
+ * certificationRequestInfo.version。
+ *
+ * RFC 2986 只定义 v1 = 0；非 0 属不常见但合法的 DER 输入，不应视为错误。
+ * 本函数采取“返回成功、原样给出值”：不做范围校验，也不把非 0 静默改写
+ * 为 0；调用方需要判断 v1 时自行比较 *out_version == 0。模块不为此发
+ * 告警（核心未提供模块侧告警写入接口），也不额外引入错误码。
+ */
 ASN1_PKCS_API asn1_err_t asn1_pkcs_certification_request_version(
     const asn1_pkcs_certification_request_t *request,
     int64_t *out_version);

@@ -547,6 +547,53 @@ static int test_certification_request(void)
     return 0;
 }
 
+/* ---------- PKCS#10 非 0 版本：原样给出值 ---------- */
+
+static int test_certification_request_nonzero_version(void)
+{
+    asn1_ctx_t *ctx = make_ctx();
+    asn1_pkcs_certification_request_t *csr = NULL;
+    uint8_t *patched = NULL;
+
+    ASN1_TEST_CHECK(ctx != NULL);
+
+    /*
+     * CSR DER：0 SEQUENCE，4 certificationRequestInfo，8 INTEGER 0；
+     * 内容字节位于偏移 10。改为 1，构造“非 v1”的不常见输入。
+     */
+    patched = (uint8_t *)malloc(kCsrRsaSize);
+    ASN1_TEST_CHECK(patched != NULL);
+    memcpy(patched, kCsrRsa, kCsrRsaSize);
+    patched[10] = 0x01;
+
+    ASN1_TEST_CHECK(asn1_pkcs_certification_request_open(
+                        ctx, patched, kCsrRsaSize, &csr) == ASN1_OK);
+    ASN1_TEST_CHECK(csr != NULL);
+
+    {
+        int64_t version = -1;
+        ASN1_TEST_CHECK(asn1_pkcs_certification_request_version(csr, &version) ==
+                        ASN1_OK);
+        /* 不做范围校验、不静默改写为 0。 */
+        ASN1_TEST_CHECK(version == 1);
+    }
+
+    /* 其余字段不受版本影响，仍可正常读取。 */
+    {
+        const char *oid = NULL;
+        size_t size = 0;
+        ASN1_TEST_CHECK(
+            asn1_pkcs_certification_request_signature_algorithm_oid(
+                csr, &oid, &size) == ASN1_OK);
+        ASN1_TEST_CHECK(text_equals(oid, size, "1.2.840.113549.1.1.11"));
+    }
+
+    asn1_pkcs_certification_request_close(csr);
+    free(patched);
+    asn1_ctx_destroy(ctx);
+    return 0;
+}
+
 /* ---------- PKCS#10 负例 ---------- */
 
 static int test_certification_request_negative(void)
@@ -608,6 +655,9 @@ int main(void)
         return 1;
     }
     if (test_certification_request() != 0) {
+        return 1;
+    }
+    if (test_certification_request_nonzero_version() != 0) {
         return 1;
     }
     if (test_certification_request_negative() != 0) {

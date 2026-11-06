@@ -37,7 +37,7 @@
 | --- | --- | --- | --- | --- |
 | 1 | `CertificationRequest` | `CertificationRequest` | 原样 | `certificationRequestInfo`、`signatureAlgorithm`、`signature` 字段顺序不变 |
 | 2 | `CertificationRequestInfo` | `CertificationRequestInfo` | 原样 | `version`、`subject`、`subjectPKInfo`、`[0] IMPLICIT attributes` 不变 |
-| 3 | `Version` | `Version` | 语法调整 | 原版 `INTEGER { v1(0) } (v1,...)`；扩展标记不影响 DER，省略 |
+| 3 | `Version` | `Version` | 语法调整 | 原版 `INTEGER { v1(0) } (v1,...)`；扩展标记不影响 DER，省略值名与扩展标记，展平为无约束 `INTEGER`，使非 0 版本按原值返回、不被解码期拒绝 |
 | 4 | `Name`（X.501/PKCS#9 导入） | `Name` | 补齐 + 语法调整 | 原版为 `CHOICE { rdnSequence RDNSequence }`，只有单一选择项，展平为 `Name ::= RDNSequence`，DER 等价 |
 | 5 | `RDNSequence`（X.501） | `RDNSequence` | 补齐 | `SEQUENCE OF RelativeDistinguishedName` |
 | 6 | `RelativeDistinguishedName`（X.501） | `RelativeDistinguishedName` | 补齐 | `SET SIZE (1..MAX) OF AttributeTypeAndValue` |

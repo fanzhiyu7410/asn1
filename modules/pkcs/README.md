@@ -83,6 +83,15 @@ asn1_ctx_destroy(ctx);
 - 调用方按 `algorithm_oid` 的结果自行二次解析参数，例如 RSA 的 `NULL`（`05 00`）或 RSA-PSS 的 `RSASSA-PSS-params`。
 - `attribute_at` 返回 `type` OID 与 `values` 节点（`SET OF ANY`），节点内容同样借用句柄。
 
+## CSR 版本语义
+
+`asn1_pkcs_certification_request_version` 采取“返回成功、原样给值”：
+
+- RFC 2986 只定义 `v1 = 0`，但非 0 是合法 DER 输入，不视为解析错误；
+- 模块不做范围校验，也不把非 0 静默改写为 0；
+- 需要断言 v1 的调用方自行比较 `*out_version == 0`；
+- 模块不为此发告警（核心未提供模块侧告警写入接口），也不新增错误码。
+
 ## 描述表来源与重生成
 
 展平 ASN.1 源在 `modules/pkcs/asn1/`：
@@ -110,4 +119,4 @@ cmake --build build-regen --target asn1_pkcs_table_verify
 
 ## 状态
 
-0.1.0：PKCS#8 明文/加密结构、PKCS#1 RSA 公私钥与 PKCS#10 CSR 的只读字段访问；包含 7 组 C 用例（明文 PKCS#8、RSA-PSS 参数缺省、加密 PKCS#8、RSA 公私钥、RSA/EC CSR、CSR 负例、PKCS#8/PKCS#1 负例），在 MinGW（GCC 13.2，`-Werror`）下构建与 ctest 通过。
+0.1.0：PKCS#8 明文/加密结构、PKCS#1 RSA 公私钥与 PKCS#10 CSR 的只读字段访问；包含 8 组 C 用例（明文 PKCS#8、RSA-PSS 参数缺省、加密 PKCS#8、RSA 公私钥、RSA/EC CSR、CSR 非 0 版本、CSR 负例、PKCS#8/PKCS#1 负例），在 MinGW（GCC 13.2，`-Werror`）下构建与 ctest 通过。
