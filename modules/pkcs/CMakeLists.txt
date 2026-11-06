@@ -12,7 +12,14 @@ project(
   LANGUAGES C CXX
 )
 
-set(ASN1_PKCS_SOURCES src/asn1_pkcs_version.cpp)
+set(ASN1_PKCS_SOURCES
+  src/asn1_pkcs_structures.cpp
+  src/asn1_pkcs_version.cpp
+  src/pkcs8_private_key_info_table.cpp
+  src/pkcs8_encrypted_private_key_info_table.cpp
+  src/pkcs1_rsa_public_key_table.cpp
+  src/pkcs1_rsa_private_key_table.cpp
+)
 set(ASN1_PKCS_TARGETS "")
 
 # 描述表产物：检入 modules/pkcs/generated/，未安装、不进入公共头。
@@ -124,6 +131,7 @@ if(ASN1_BUILD_SHARED)
     "${ASN1_MODULE_GENERATED_INCLUDE_DIR}"
     ASN1_PKCS_BUILDING_LIBRARY
   )
+  target_include_directories(asn1_pkcs_shared PRIVATE "${pkcs_table_include_dir}")
   target_link_libraries(asn1_pkcs_shared PUBLIC asn1::shared)
   add_library(asn1::pkcs::shared ALIAS asn1_pkcs_shared)
   list(APPEND ASN1_PKCS_TARGETS asn1_pkcs_shared)
@@ -143,10 +151,20 @@ if(ASN1_BUILD_STATIC)
     "${ASN1_MODULE_GENERATED_INCLUDE_DIR}"
     ASN1_PKCS_BUILDING_LIBRARY
   )
+  target_include_directories(asn1_pkcs_static PRIVATE "${pkcs_table_include_dir}")
   target_compile_definitions(asn1_pkcs_static PRIVATE ASN1_PKCS_STATIC INTERFACE ASN1_PKCS_STATIC)
   target_link_libraries(asn1_pkcs_static PUBLIC asn1::static)
   add_library(asn1::pkcs::static ALIAS asn1_pkcs_static)
   list(APPEND ASN1_PKCS_TARGETS asn1_pkcs_static)
+endif()
+
+if(ASN1_PKCS_REGENERATE_TABLE)
+  if(TARGET asn1_pkcs_shared)
+    add_dependencies(asn1_pkcs_shared asn1_pkcs_table_verify)
+  endif()
+  if(TARGET asn1_pkcs_static)
+    add_dependencies(asn1_pkcs_static asn1_pkcs_table_verify)
+  endif()
 endif()
 
 asn1_install_module(
