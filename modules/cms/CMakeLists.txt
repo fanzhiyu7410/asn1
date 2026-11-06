@@ -8,7 +8,7 @@ cmake_minimum_required(VERSION 3.20)
 project(
   asn1-cms
   VERSION 0.1.0
-  DESCRIPTION "CMS/PKCS#7 标准结构模块（RFC 6268，二期占位）"
+  DESCRIPTION "CMS/PKCS#7 标准结构模块（RFC 6268，二期第二批，只读）"
   LANGUAGES C CXX
 )
 

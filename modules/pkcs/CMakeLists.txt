@@ -1,14 +1,14 @@
 # Copyright (c) 2026 asn1 project contributors
 # SPDX-License-Identifier: MIT
 
-# asn1-pkcs：PKCS 系列标准结构模块（占位骨架）。
+# asn1-pkcs：PKCS 系列标准结构模块（只读结构访问）。
 # 独立包与版本；只依赖核心公共 ABI，核心不反向引用本模块。
 cmake_minimum_required(VERSION 3.20)
 
 project(
   asn1-pkcs
   VERSION 0.1.0
-  DESCRIPTION "PKCS 系列标准结构模块（RFC 8017/5208/2986/7292，二期占位）"
+  DESCRIPTION "PKCS 系列标准结构模块（RFC 8017/5208/2986/7292，只读）"
   LANGUAGES C CXX
 )
 
