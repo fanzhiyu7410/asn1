@@ -24,6 +24,8 @@ jobs:
   build:
     name: ${{ matrix.platform }}-${{ matrix.build_type }}-${{ matrix.link_mode }}
     runs-on: ${{ matrix.os }}
+    # 防止某个平台挂起把整次 run 拖成永不终结；超时按失败处理，不作为成功。
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -45,12 +47,12 @@ jobs:
             cxx: clang++
             generator: Ninja
           - platform: macos-x86_64
-            os: macos-13
+            os: macos-15-intel
             cc: clang
             cxx: clang++
             generator: Ninja
           - platform: macos-arm64
-            os: macos-14
+            os: macos-15
             cc: clang
             cxx: clang++
             generator: Ninja
