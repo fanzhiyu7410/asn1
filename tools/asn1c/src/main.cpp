@@ -47,7 +47,8 @@ bool startsWith(const std::string &text, const char *prefix)
 bool readFile(const std::string &path, std::string &out)
 {
     std::ifstream stream(path.c_str(), std::ios::binary);
-    if (!stream) {
+    /* 某些 MinGW/libstdc++ 组合在 open 失败时不置 failbit，is_open 仍需检查。 */
+    if (!stream || !stream.is_open()) {
         return false;
     }
     std::string data;
