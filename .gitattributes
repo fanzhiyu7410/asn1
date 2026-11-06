@@ -3,3 +3,5 @@ modules/*/generated/*.bin binary
 modules/*/generated/*.h text eol=lf
 modules/*/asn1/*.asn1 text eol=lf
 modules/*/asn1/**/*.md text eol=lf
+tests/differential/*.md text eol=lf
+tests/differential/*.json text eol=lf
