@@ -22,50 +22,54 @@ concurrency:
 
 jobs:
   build:
-    name: ${{ matrix.name }}-${{ matrix.build_type }}-${{ matrix.link_mode }}
+    name: ${{ matrix.platform }}-${{ matrix.build_type }}-${{ matrix.link_mode }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        platform: [linux-gcc, linux-clang, macos-x86_64, macos-arm64, windows-msvc,
+          windows-mingw]
+        build_type: [Debug, Release]
+        link_mode: [shared, static]
+        # include 条目必须带上 platform，才能作为该平台的属性合并进对应组合；
+        # 不带 platform 的条目会被叠加到同一组原始组合上并互相覆盖（矩阵塌缩）。
         include:
-          - name: linux-gcc
+          - platform: linux-gcc
             os: ubuntu-24.04
             cc: gcc-13
             cxx: g++-13
             generator: Ninja
-          - name: linux-clang
+          - platform: linux-clang
             os: ubuntu-24.04
             cc: clang
             cxx: clang++
             generator: Ninja
-          - name: macos-x86_64
+          - platform: macos-x86_64
             os: macos-13
             cc: clang
             cxx: clang++
             generator: Ninja
-          - name: macos-arm64
+          - platform: macos-arm64
             os: macos-14
             cc: clang
             cxx: clang++
             generator: Ninja
-          - name: windows-msvc
+          - platform: windows-msvc
             os: windows-2022
             cc: ""
             cxx: ""
             generator: ""
-          - name: windows-mingw
+          - platform: windows-mingw
             os: windows-2022
             cc: gcc
             cxx: g++
             generator: Ninja
-        build_type: [Debug, Release]
-        link_mode: [shared, static]
 
     steps:
       - uses: actions/checkout@v4
 
       - name: 安装 Linux 工具链
-        if: matrix.name == 'linux-gcc' || matrix.name == 'linux-clang'
+        if: matrix.platform == 'linux-gcc' || matrix.platform == 'linux-clang'
         run: |
           sudo apt-get update
           sudo apt-get install -y ninja-build
@@ -74,7 +78,7 @@ jobs:
           fi
 
       - name: 安装 MinGW 工具链（MSYS2）
-        if: matrix.name == 'windows-mingw'
+        if: matrix.platform == 'windows-mingw'
         uses: msys2/setup-msys2@v2
         with:
           msystem: UCRT64
@@ -86,7 +90,7 @@ jobs:
           path-type: inherit
 
       - name: 配置（Linux/macOS）
-        if: matrix.name != 'windows-msvc' && matrix.name != 'windows-mingw'
+        if: matrix.platform != 'windows-msvc' && matrix.platform != 'windows-mingw'
         shell: bash
         run: |
           cmake -S . -B build -G "${{ matrix.generator }}" \
@@ -100,7 +104,7 @@ jobs:
             -DASN1_BUILD_STATIC=${{ matrix.link_mode == 'static' && 'ON' || 'OFF' }}
 
       - name: 配置（MinGW）
-        if: matrix.name == 'windows-mingw'
+        if: matrix.platform == 'windows-mingw'
         shell: msys2 {0}
         run: |
           cmake -S . -B build -G Ninja \
@@ -114,7 +118,7 @@ jobs:
             -DASN1_BUILD_STATIC=${{ matrix.link_mode == 'static' && 'ON' || 'OFF' }}
 
       - name: 配置（MSVC）
-        if: matrix.name == 'windows-msvc'
+        if: matrix.platform == 'windows-msvc'
         shell: bash
         run: |
           cmake -S . -B build -A x64 \
@@ -126,32 +130,50 @@ jobs:
             -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
 
       - name: 构建（Linux/macOS）
-        if: matrix.name != 'windows-msvc' && matrix.name != 'windows-mingw'
+        if: matrix.platform != 'windows-msvc' && matrix.platform != 'windows-mingw'
         shell: bash
-        run: cmake --build build --parallel
+        run: cmake --build build --parallel > build.log 2>&1
+
+      - name: 构建日志（Linux/macOS）
+        if: always() && matrix.platform != 'windows-msvc' && matrix.platform != 'windows-mingw'
+        shell: bash
+        run: |
+          if [ -f build.log ]; then tail -n 120 build.log; fi
 
       - name: 构建（MinGW）
-        if: matrix.name == 'windows-mingw'
+        if: matrix.platform == 'windows-mingw'
         shell: msys2 {0}
-        run: cmake --build build --parallel
+        run: cmake --build build --parallel > build.log 2>&1
+
+      - name: 构建日志（MinGW）
+        if: always() && matrix.platform == 'windows-mingw'
+        shell: msys2 {0}
+        run: |
+          if [ -f build.log ]; then tail -n 120 build.log; fi
 
       - name: 构建（MSVC）
-        if: matrix.name == 'windows-msvc'
+        if: matrix.platform == 'windows-msvc'
         shell: bash
-        run: cmake --build build --config ${{ matrix.build_type }} --parallel
+        run: cmake --build build --config ${{ matrix.build_type }} --parallel > build.log 2>&1
+
+      - name: 构建日志（MSVC）
+        if: always() && matrix.platform == 'windows-msvc'
+        shell: bash
+        run: |
+          if [ -f build.log ]; then tail -n 120 build.log; fi
 
       - name: 测试（Linux/macOS）
-        if: matrix.name != 'windows-msvc' && matrix.name != 'windows-mingw'
+        if: matrix.platform != 'windows-msvc' && matrix.platform != 'windows-mingw'
         shell: bash
         run: ctest --test-dir build --output-on-failure
 
       - name: 测试（MinGW）
-        if: matrix.name == 'windows-mingw'
+        if: matrix.platform == 'windows-mingw'
         shell: msys2 {0}
         run: ctest --test-dir build --output-on-failure
 
       - name: 测试（MSVC）
-        if: matrix.name == 'windows-msvc'
+        if: matrix.platform == 'windows-msvc'
         shell: bash
         run: ctest --test-dir build -C ${{ matrix.build_type }} --output-on-failure
 
