@@ -30,7 +30,7 @@ asn1c -o cms_signed_data_schema.bin -c cms_signed_data_schema.h --root SignedDat
 `asn1-cms` 按 ADR-0012 保持自包含，**不新增 `asn1-cms → asn1-pkix` 依赖**：
 
 1. RFC 5652 第 12.1 节的 `IMPORTS`（`AlgorithmIdentifier`、`Certificate`、`CertificateList`、`CertificateSerialNumber`、`Name`、`AttributeCertificate`）全部删除。
-2. 上述类型及其从 `SignedData` 可达的依赖复制进本模块（`AlgorithmIdentifier`、`Name`/`RDNSequence`、`Certificate`/`TBSCertificate`、`Validity`/`Time`、`Extensions`、`CertificateList` 等，共 24 个 PKIX 类型）。
+2. 上述类型及其从 `SignedData` 可达的依赖复制进本模块（`AlgorithmIdentifier`、`Name`/`RDNSequence`、`Certificate`/`TBSCertificate`、`Validity`/`Time`、`Extensions`、`CertificateList` 等，共 18 个 PKIX 类型，另有 29 个 RFC 5652 原类型）。
 3. 复制范围严格以“从 `SignedData` 可达”为判据，不整表搬运；未复制清单见 `reconciliation.md` 第 2.1 节。
 
 代价：同一批类型在 `asn1-pkix` 与 `asn1-cms` 中各有一份，两模块需同步维护；描述表体积也因此变大（单表约 10 KB，两张表各含整模块类型记录）。
