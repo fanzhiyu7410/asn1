@@ -2,8 +2,9 @@
  * Copyright (c) 2026 asn1 project contributors
  * SPDX-License-Identifier: MIT
  *
- * asn1-pkcs 第一切片：PKCS#8 / PKCS#1 只读结构访问。
- * 覆盖 PKCS#8 明文与加密、RSA-PSS 参数 ANY、PKCS#1 公私钥字段、负例。
+ * asn1-pkcs 只读结构访问：PKCS#8 / PKCS#1 / PKCS#10。
+ * 覆盖 PKCS#8 明文与加密、RSA-PSS 参数 ANY、PKCS#1 公私钥字段、
+ * PKCS#10 CSR 字段与负例。
  */
 
 #include <asn1/asn1.h>
@@ -13,6 +14,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "../data/csr_ec.h"
+#include "../data/csr_rsa.h"
 #include "../data/key_rsa_pkcs1_private.h"
 #include "../data/key_rsa_pkcs1_public.h"
 #include "../data/key_rsa_pkcs8.h"
@@ -388,6 +391,208 @@ static int test_negative(void)
     return 0;
 }
 
+/* ---------- PKCS#10 CSR 正例：RSA 与 EC ---------- */
+
+static int test_certification_request(void)
+{
+    asn1_ctx_t *ctx = make_ctx();
+    asn1_pkcs_certification_request_t *csr = NULL;
+
+    ASN1_TEST_CHECK(ctx != NULL);
+
+    /* RSA CSR：sha256WithRSAEncryption、rsaEncryption + NULL、空 attributes。 */
+    ASN1_TEST_CHECK(asn1_pkcs_certification_request_open(
+                        ctx, kCsrRsa, kCsrRsaSize, &csr) == ASN1_OK);
+    ASN1_TEST_CHECK(csr != NULL);
+
+    {
+        int64_t version = -1;
+        ASN1_TEST_CHECK(asn1_pkcs_certification_request_version(csr, &version) ==
+                        ASN1_OK);
+        ASN1_TEST_CHECK(version == 0);
+    }
+
+    {
+        const uint8_t *subject = NULL;
+        size_t size = 0;
+        ASN1_TEST_CHECK(asn1_pkcs_certification_request_subject_der(
+                            csr, &subject, &size) == ASN1_OK);
+        ASN1_TEST_CHECK(subject != NULL && size == 58);
+        ASN1_TEST_CHECK(subject[0] == 0x30);
+    }
+
+    {
+        const char *oid = NULL;
+        size_t size = 0;
+        const uint8_t *params = NULL;
+        size_t params_size = 0;
+        ASN1_TEST_CHECK(
+            asn1_pkcs_certification_request_subject_public_key_algorithm_oid(
+                csr, &oid, &size) == ASN1_OK);
+        ASN1_TEST_CHECK(text_equals(oid, size, "1.2.840.113549.1.1.1"));
+        ASN1_TEST_CHECK(
+            asn1_pkcs_certification_request_subject_public_key_algorithm_parameters(
+                csr, &params, &params_size) == ASN1_OK);
+        ASN1_TEST_CHECK(params != NULL && params_size == 2);
+        ASN1_TEST_CHECK(params[0] == 0x05 && params[1] == 0x00);
+    }
+
+    {
+        const uint8_t *key = NULL;
+        size_t size = 0;
+        const uint8_t *tlv = NULL;
+        size_t tlv_size = 0;
+        ASN1_TEST_CHECK(asn1_pkcs_certification_request_subject_public_key(
+                            csr, &key, &size) == ASN1_OK);
+        ASN1_TEST_CHECK(key != NULL && size == 270);
+        ASN1_TEST_CHECK(key[0] == 0x30);
+        ASN1_TEST_CHECK(
+            asn1_pkcs_certification_request_subject_public_key_tlv(
+                csr, &tlv, &tlv_size) == ASN1_OK);
+        ASN1_TEST_CHECK(tlv != NULL && tlv_size == 275);
+        ASN1_TEST_CHECK(tlv[0] == 0x03);
+    }
+
+    {
+        size_t count = 1;
+        const char *oid = NULL;
+        size_t oid_size = 0;
+        const asn1_node_t *values = NULL;
+        ASN1_TEST_CHECK(
+            asn1_pkcs_certification_request_attribute_count(csr, &count) ==
+            ASN1_OK);
+        ASN1_TEST_CHECK(count == 0);
+        ASN1_TEST_CHECK(
+            asn1_pkcs_certification_request_attribute_at(
+                csr, 0, &oid, &oid_size, &values) == ASN1_E_INVALID_ARG);
+    }
+
+    {
+        const char *oid = NULL;
+        size_t size = 0;
+        const uint8_t *params = NULL;
+        size_t params_size = 0;
+        const uint8_t *signature = NULL;
+        size_t signature_size = 0;
+        const uint8_t *tlv = NULL;
+        size_t tlv_size = 0;
+        ASN1_TEST_CHECK(
+            asn1_pkcs_certification_request_signature_algorithm_oid(
+                csr, &oid, &size) == ASN1_OK);
+        ASN1_TEST_CHECK(text_equals(oid, size, "1.2.840.113549.1.1.11"));
+        ASN1_TEST_CHECK(
+            asn1_pkcs_certification_request_signature_algorithm_parameters(
+                csr, &params, &params_size) == ASN1_OK);
+        ASN1_TEST_CHECK(params != NULL && params_size == 2);
+        ASN1_TEST_CHECK(params[0] == 0x05 && params[1] == 0x00);
+        ASN1_TEST_CHECK(asn1_pkcs_certification_request_signature_value(
+                            csr, &signature, &signature_size) == ASN1_OK);
+        ASN1_TEST_CHECK(signature != NULL && signature_size == 256);
+        ASN1_TEST_CHECK(
+            asn1_pkcs_certification_request_signature_value_tlv(
+                csr, &tlv, &tlv_size) == ASN1_OK);
+        ASN1_TEST_CHECK(tlv != NULL && tlv_size == 261);
+        ASN1_TEST_CHECK(tlv[0] == 0x03);
+    }
+
+    asn1_pkcs_certification_request_close(csr);
+    csr = NULL;
+
+    /* EC CSR：参数为 curve OID，公钥为未压缩点。 */
+    ASN1_TEST_CHECK(asn1_pkcs_certification_request_open(
+                        ctx, kCsrEc, kCsrEcSize, &csr) == ASN1_OK);
+    ASN1_TEST_CHECK(csr != NULL);
+
+    {
+        const uint8_t *subject = NULL;
+        size_t size = 0;
+        ASN1_TEST_CHECK(asn1_pkcs_certification_request_subject_der(
+                            csr, &subject, &size) == ASN1_OK);
+        ASN1_TEST_CHECK(subject != NULL && size == 57);
+    }
+
+    {
+        const char *oid = NULL;
+        size_t size = 0;
+        const uint8_t *params = NULL;
+        size_t params_size = 0;
+        const uint8_t *key = NULL;
+        size_t key_size = 0;
+        ASN1_TEST_CHECK(
+            asn1_pkcs_certification_request_subject_public_key_algorithm_oid(
+                csr, &oid, &size) == ASN1_OK);
+        ASN1_TEST_CHECK(text_equals(oid, size, "1.2.840.10045.2.1"));
+        ASN1_TEST_CHECK(
+            asn1_pkcs_certification_request_subject_public_key_algorithm_parameters(
+                csr, &params, &params_size) == ASN1_OK);
+        ASN1_TEST_CHECK(params != NULL && params_size == 10);
+        ASN1_TEST_CHECK(params[0] == 0x06);
+        ASN1_TEST_CHECK(asn1_pkcs_certification_request_subject_public_key(
+                            csr, &key, &key_size) == ASN1_OK);
+        ASN1_TEST_CHECK(key != NULL && key_size == 65);
+        ASN1_TEST_CHECK(key[0] == 0x04);
+    }
+
+    {
+        const char *oid = NULL;
+        size_t size = 0;
+        ASN1_TEST_CHECK(
+            asn1_pkcs_certification_request_signature_algorithm_oid(
+                csr, &oid, &size) == ASN1_OK);
+        ASN1_TEST_CHECK(text_equals(oid, size, "1.2.840.10045.4.3.2"));
+    }
+
+    asn1_pkcs_certification_request_close(csr);
+    asn1_ctx_destroy(ctx);
+    return 0;
+}
+
+/* ---------- PKCS#10 负例 ---------- */
+
+static int test_certification_request_negative(void)
+{
+    asn1_ctx_t *ctx = make_ctx();
+    asn1_pkcs_certification_request_t *csr = NULL;
+    uint8_t *trailing = NULL;
+
+    ASN1_TEST_CHECK(ctx != NULL);
+
+    ASN1_TEST_CHECK(asn1_pkcs_certification_request_open(
+                        NULL, kCsrRsa, kCsrRsaSize, &csr) ==
+                    ASN1_E_INVALID_ARG);
+    ASN1_TEST_CHECK(asn1_pkcs_certification_request_open(
+                        ctx, NULL, kCsrRsaSize, &csr) == ASN1_E_INVALID_ARG);
+    ASN1_TEST_CHECK(asn1_pkcs_certification_request_open(
+                        ctx, kCsrRsa, kCsrRsaSize, NULL) ==
+                    ASN1_E_INVALID_ARG);
+    ASN1_TEST_CHECK(asn1_pkcs_certification_request_version(NULL, NULL) ==
+                    ASN1_E_INVALID_ARG);
+    asn1_pkcs_certification_request_close(NULL);
+
+    /* 非 CSR 输入（PKCS#8 私钥）必须失败。 */
+    ASN1_TEST_CHECK(asn1_pkcs_certification_request_open(
+                        ctx, kKeyRsaPkcs8, kKeyRsaPkcs8Size, &csr) != ASN1_OK);
+    ASN1_TEST_CHECK(csr == NULL);
+
+    /* 截断 CSR。 */
+    ASN1_TEST_CHECK(asn1_pkcs_certification_request_open(
+                        ctx, kCsrRsa, kCsrRsaSize - 20, &csr) != ASN1_OK);
+    ASN1_TEST_CHECK(csr == NULL);
+
+    /* 合法 DER 后附加尾随字节。 */
+    trailing = (uint8_t *)malloc(kCsrRsaSize + 1);
+    ASN1_TEST_CHECK(trailing != NULL);
+    memcpy(trailing, kCsrRsa, kCsrRsaSize);
+    trailing[kCsrRsaSize] = 0x00;
+    ASN1_TEST_CHECK(asn1_pkcs_certification_request_open(
+                        ctx, trailing, kCsrRsaSize + 1, &csr) != ASN1_OK);
+    ASN1_TEST_CHECK(csr == NULL);
+    free(trailing);
+
+    asn1_ctx_destroy(ctx);
+    return 0;
+}
+
 int main(void)
 {
     if (test_private_key_info_clear() != 0) {
@@ -400,6 +605,12 @@ int main(void)
         return 1;
     }
     if (test_rsa_keys() != 0) {
+        return 1;
+    }
+    if (test_certification_request() != 0) {
+        return 1;
+    }
+    if (test_certification_request_negative() != 0) {
         return 1;
     }
     if (test_negative() != 0) {

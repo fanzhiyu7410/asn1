@@ -4,11 +4,12 @@
  */
 
 /*
- * asn1-pkcs 公共头文件（第一切片：PKCS#8 + PKCS#1 只读结构访问）。
+ * asn1-pkcs 公共头文件（PKCS#8 + PKCS#1 + PKCS#10 只读结构访问）。
  *
- * 本模块承载 RFC 5208（PKCS#8）与 RFC 8017 Appendix A（PKCS#1）展平模块
- * 生成的描述表。只读语义：不解密、不做 RSA 运算、不做填充/签名/加密，
- * 也不校验任何签名；ANY 字段只返回原始 TLV，由调用方按 OID 二次解析。
+ * 本模块承载 RFC 5208（PKCS#8）、RFC 8017 Appendix A（PKCS#1）与 RFC 2986
+ * （PKCS#10）展平模块生成的描述表。只读语义：不解密、不做 RSA 运算、不做
+ * 填充/签名/加密，也不校验任何签名；ANY 字段只返回原始 TLV，由调用方按
+ * OID 二次解析。
  *
  * 生命周期：句柄由 open 创建、close 销毁；内部文档与 schema 随句柄创建
  * 和销毁。句柄借用调用方的 asn1_ctx_t，ctx 必须比句柄存活更久。所有由
@@ -51,6 +52,8 @@ typedef struct asn1_pkcs_encrypted_private_key_info
     asn1_pkcs_encrypted_private_key_info_t;
 typedef struct asn1_pkcs_rsa_public_key asn1_pkcs_rsa_public_key_t;
 typedef struct asn1_pkcs_rsa_private_key asn1_pkcs_rsa_private_key_t;
+typedef struct asn1_pkcs_certification_request
+    asn1_pkcs_certification_request_t;
 
 /* 返回模块版本字符串；静态存储，调用方不得释放。 */
 ASN1_PKCS_API const char *asn1_pkcs_version_string(void);
@@ -210,6 +213,94 @@ ASN1_PKCS_API asn1_err_t asn1_pkcs_rsa_private_key_exponent2(
 ASN1_PKCS_API asn1_err_t asn1_pkcs_rsa_private_key_coefficient(
     const asn1_pkcs_rsa_private_key_t *key, const char **out_decimal,
     size_t *out_size);
+
+/* ------------------------------------------------------------------------- */
+/* PKCS#10 CertificationRequest（RFC 2986 4.2）                              */
+/* ------------------------------------------------------------------------- */
+
+/*
+ * 打开 DER 编码的 CertificationRequest。
+ *
+ * 只读结构：不验证 signatureValue，也不对 certificationRequestInfo 做任何
+ * 密码学处理；attributes 只按通用结构给出类型 OID 与 ANY 值节点。
+ */
+ASN1_PKCS_API asn1_err_t asn1_pkcs_certification_request_open(
+    asn1_ctx_t *ctx, const uint8_t *der, size_t der_size,
+    asn1_pkcs_certification_request_t **out_request);
+
+/* 关闭句柄；request == NULL 为空操作。 */
+ASN1_PKCS_API void asn1_pkcs_certification_request_close(
+    asn1_pkcs_certification_request_t *request);
+
+/* certificationRequestInfo.version（RFC 2986 定义 v1 = 0）。 */
+ASN1_PKCS_API asn1_err_t asn1_pkcs_certification_request_version(
+    const asn1_pkcs_certification_request_t *request,
+    int64_t *out_version);
+
+/* certificationRequestInfo.subject 完整 DER TLV（借用句柄）。 */
+ASN1_PKCS_API asn1_err_t asn1_pkcs_certification_request_subject_der(
+    const asn1_pkcs_certification_request_t *request, const uint8_t **out_data,
+    size_t *out_size);
+
+/* subjectPKInfo.algorithm.algorithm：OID 点分十进制文本（借用句柄）。 */
+ASN1_PKCS_API asn1_err_t
+asn1_pkcs_certification_request_subject_public_key_algorithm_oid(
+    const asn1_pkcs_certification_request_t *request, const char **out_dotted,
+    size_t *out_size);
+
+/* subjectPKInfo.algorithm.parameters：ANY 原始 TLV；缺省返回 NULL/0。 */
+ASN1_PKCS_API asn1_err_t
+asn1_pkcs_certification_request_subject_public_key_algorithm_parameters(
+    const asn1_pkcs_certification_request_t *request,
+    const uint8_t **out_data, size_t *out_size);
+
+/* subjectPKInfo.subjectPublicKey：BIT STRING 位字节（借用句柄）。 */
+ASN1_PKCS_API asn1_err_t
+asn1_pkcs_certification_request_subject_public_key(
+    const asn1_pkcs_certification_request_t *request,
+    const uint8_t **out_data, size_t *out_size);
+
+/* subjectPKInfo.subjectPublicKey 字段完整 TLV（借用句柄）。 */
+ASN1_PKCS_API asn1_err_t
+asn1_pkcs_certification_request_subject_public_key_tlv(
+    const asn1_pkcs_certification_request_t *request,
+    const uint8_t **out_data, size_t *out_size);
+
+/* certificationRequestInfo.attributes 中的属性个数；空集合为 0。 */
+ASN1_PKCS_API asn1_err_t asn1_pkcs_certification_request_attribute_count(
+    const asn1_pkcs_certification_request_t *request, size_t *out_count);
+
+/*
+ * 按下标访问 Attribute：type OID 点分十进制 + values（SET OF ANY）借用节点。
+ * index 越界返回 ASN1_E_INVALID_ARG。
+ */
+ASN1_PKCS_API asn1_err_t asn1_pkcs_certification_request_attribute_at(
+    const asn1_pkcs_certification_request_t *request, size_t index,
+    const char **out_type_oid, size_t *out_type_oid_size,
+    const asn1_node_t **out_values);
+
+/* signatureAlgorithm.algorithm：OID 点分十进制文本（借用句柄）。 */
+ASN1_PKCS_API asn1_err_t
+asn1_pkcs_certification_request_signature_algorithm_oid(
+    const asn1_pkcs_certification_request_t *request, const char **out_dotted,
+    size_t *out_size);
+
+/* signatureAlgorithm.parameters：ANY 原始 TLV；缺省返回 NULL/0。 */
+ASN1_PKCS_API asn1_err_t
+asn1_pkcs_certification_request_signature_algorithm_parameters(
+    const asn1_pkcs_certification_request_t *request,
+    const uint8_t **out_data, size_t *out_size);
+
+/* signature：BIT STRING 位字节（借用于句柄，不解码、不验签）。 */
+ASN1_PKCS_API asn1_err_t asn1_pkcs_certification_request_signature_value(
+    const asn1_pkcs_certification_request_t *request,
+    const uint8_t **out_data, size_t *out_size);
+
+/* signature 字段完整 TLV（借用句柄）。 */
+ASN1_PKCS_API asn1_err_t
+asn1_pkcs_certification_request_signature_value_tlv(
+    const asn1_pkcs_certification_request_t *request,
+    const uint8_t **out_data, size_t *out_size);
 
 #ifdef __cplusplus
 }

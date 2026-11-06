@@ -1,10 +1,10 @@
 # asn1-pkcs
 
-PKCS 系列标准结构模块（RFC 8017 / RFC 5208），以 `.asn1` 描述表驱动，只做**只读结构访问**。
+PKCS 系列标准结构模块（RFC 8017 / RFC 5208 / RFC 2986），以 `.asn1` 描述表驱动，只做**只读结构访问**。
 
 ## 模块范围
 
-第一切片只覆盖以下 4 个顶层结构：
+覆盖以下 5 个顶层结构：
 
 | 结构 | 标准 | 说明 |
 | --- | --- | --- |
@@ -12,10 +12,11 @@ PKCS 系列标准结构模块（RFC 8017 / RFC 5208），以 `.asn1` 描述表�
 | `EncryptedPrivateKeyInfo` | RFC 5208 附录 A | 加密私钥信息 |
 | `RSAPublicKey` | RFC 8017 附录 A（PKCS#1） | RSA 公钥 |
 | `RSAPrivateKey` | RFC 8017 附录 A（PKCS#1） | RSA 私钥 |
+| `CertificationRequest` | RFC 2986 §4.2（PKCS#10） | 证书请求（CSR） |
 
-**不包含**：解密、口令处理、RSA 运算、填充/签名/加密、签名校验。`EncryptedPrivateKeyInfo` 只暴露加密算法与密文字节，不尝试解密。
+**不包含**：解密、口令处理、RSA 运算、填充/签名/加密、签名校验。`EncryptedPrivateKeyInfo` 只暴露加密算法与密文字节，不尝试解密；`CertificationRequest` 不验证 `signatureValue`，也不校验 CSR 内容。
 
-后续规划：PKCS#10（CSR）紧随本切片；PKCS#12 后置；PKCS#7 归入 CMS 模块，不在本模块实现。
+后续规划：PKCS#12 后置；PKCS#7 归入 CMS 模块，不在本模块实现。
 
 ## 公共头与链接
 
@@ -27,12 +28,13 @@ PKCS 系列标准结构模块（RFC 8017 / RFC 5208），以 `.asn1` 描述表�
 
 ## 句柄与生命周期
 
-4 个不透明句柄各由 `open` 创建、`close` 销毁：
+5 个不透明句柄各由 `open` 创建、`close` 销毁：
 
 - `asn1_pkcs_private_key_info_open` / `_close`
 - `asn1_pkcs_encrypted_private_key_info_open` / `_close`
 - `asn1_pkcs_rsa_public_key_open` / `_close`
 - `asn1_pkcs_rsa_private_key_open` / `_close`
+- `asn1_pkcs_certification_request_open` / `_close`
 
 约束：
 
@@ -87,8 +89,9 @@ asn1_ctx_destroy(ctx);
 
 - `PKCS8-Flattened-5208.asn1`
 - `PKCS1-Flattened-8017.asn1`
+- `PKCS10-Flattened-2986.asn1`
 
-第一切片有 4 个顶层结构，而 `asn1c` 每张表只接受一个 `--root`，因此生成 4 张表，产物检入 `modules/pkcs/generated/`（`.bin` + 描述头 `.h`）。默认构建不依赖 `asn1c`。
+共 6 个顶层结构，而 `asn1c` 每张表只接受一个 `--root`，因此生成 6 张表，产物检入 `modules/pkcs/generated/`（`.bin` + 描述头 `.h`）。默认构建不依赖 `asn1c`。
 
 重新生成并逐字节校验：
 
@@ -107,4 +110,4 @@ cmake --build build-regen --target asn1_pkcs_table_verify
 
 ## 状态
 
-0.1.0：PKCS#8 明文/加密结构与 PKCS#1 RSA 公私钥的只读字段访问；包含 5 组 C 用例（明文 PKCS#8、RSA-PSS 参数缺省、加密 PKCS#8、RSA 公私钥、负例），在 MinGW（GCC 13.2，`-Werror`）下构建与 ctest 通过。
+0.1.0：PKCS#8 明文/加密结构、PKCS#1 RSA 公私钥与 PKCS#10 CSR 的只读字段访问；包含 7 组 C 用例（明文 PKCS#8、RSA-PSS 参数缺省、加密 PKCS#8、RSA 公私钥、RSA/EC CSR、CSR 负例、PKCS#8/PKCS#1 负例），在 MinGW（GCC 13.2，`-Werror`）下构建与 ctest 通过。
