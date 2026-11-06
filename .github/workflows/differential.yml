@@ -3,7 +3,8 @@
 #
 # 差分测试：核心 DER 解码 vs OpenSSL asn1parse（主参照），asn1tools（可选）。
 # 参照工具缺失时显式 skipped，绝不静默通过。
-# 说明：本仓库当前无远端，本文件未在 GitHub Actions 上实际触发过。
+# 样本清单在 tests/differential/diff_asn1.py 的 REAL_DERS 中维护，包含
+# PKCS#8/PKCS#1/PKCS#10；参照工具只做对照，不链接、不进入产物。
 
 name: differential
 

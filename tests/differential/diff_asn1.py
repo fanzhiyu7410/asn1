@@ -34,6 +34,9 @@ REAL_DERS = [
     "key_rsa_pkcs8.der",
     "key_rsa_pss_pkcs8.der",
     "key_ec_pkcs8.der",
+    "key_rsa_pkcs8_encrypted.der",
+    "key_rsa_pkcs1_private.der",
+    "key_rsa_pkcs1_public.der",
 ]
 
 OPENSSL_LINE = re.compile(

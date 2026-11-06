@@ -14,6 +14,19 @@ DATA = os.path.join(ROOT, "tests", "data")
 CORPUS = os.path.join(ROOT, "tests", "fuzz", "corpus")
 PKIX_BIN = os.path.join(ROOT, "modules", "pkix", "generated", "pkix_schema.bin")
 
+# 模块描述表（schema_load 语料）：直接喂入模块实际解码使用的表字节。
+PKCS_BINS = [
+    os.path.join(ROOT, "modules", "pkcs", "generated", name)
+    for name in [
+        "pkcs8_private_key_info_schema.bin",
+        "pkcs8_encrypted_private_key_info_schema.bin",
+        "pkcs1_rsa_public_key_schema.bin",
+        "pkcs1_rsa_private_key_schema.bin",
+        "pkcs10_certification_request_schema.bin",
+        "pkcs10_certification_request_info_schema.bin",
+    ]
+]
+
 # 需要二进制种子（DER/BER）的 harness。
 BIN_HARNESSES = [
     "decode_ber",
@@ -33,6 +46,9 @@ REAL_DERS = [
     "key_rsa_pkcs8.der",
     "key_rsa_pss_pkcs8.der",
     "key_ec_pkcs8.der",
+    "key_rsa_pkcs8_encrypted.der",
+    "key_rsa_pkcs1_private.der",
+    "key_rsa_pkcs1_public.der",
 ]
 
 # 合成二进制种子：覆盖未知扩展/ANY 三形态/EXPLICIT ANY/不定长（单层+嵌套）/
@@ -356,10 +372,13 @@ def main():
     for name, data in SCHEMA_DECODE_SYNTH.items():
         write_bytes(os.path.join(hdir, name), data)
 
-    # 2) schema_load：真实 PKIX 表字节（最大攻击面）+ 空/垃圾。
+    # 2) schema_load：真实 PKIX/PKCS 表字节（最大攻击面）+ 空/垃圾。
     hdir = os.path.join(CORPUS, "schema_load")
     write_bytes(os.path.join(hdir, "pkix_schema.bin"),
                 open(PKIX_BIN, "rb").read())
+    for path in PKCS_BINS:
+        write_bytes(os.path.join(hdir, os.path.basename(path)),
+                    open(path, "rb").read())
     write_bytes(os.path.join(hdir, "empty"), b"")
     write_bytes(os.path.join(hdir, "magic_only"), b"ASN1SCH")
     write_bytes(os.path.join(hdir, "garbage"), b"\xde\xad\xbe\xef" * 16)

@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: MIT
 #
 # libFuzzer 短预算矩阵 + 可选长跑。
-# 说明：本仓库当前无远端，本文件未在 GitHub Actions 上实际触发过；
-# 本地等价命令见 tests/fuzz/README.md 与 docs/07-测试与验证.md。
+# schema_load 语料包含核心与 PKIX/PKCS 描述表；decode/roundtrip 语料包含
+# PKCS#8/PKCS#1/PKCS#10 真实样本。本地等价命令见 tests/fuzz/README.md 与
+# docs/07-测试与验证.md。
 
 name: fuzz
 

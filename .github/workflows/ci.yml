@@ -4,9 +4,8 @@
 # 统一 CI 矩阵：每个平台只跑同一套核心步骤
 #   cmake -S . -B build -> cmake --build build -> ctest
 # 覆盖 Debug/Release 与共享/静态四种组合，全部开启 ASN1_WARNINGS_AS_ERRORS。
-#
-# 说明：本仓库当前没有远端，本文件未在 GitHub Actions 上实际触发过；
-# 本地等价命令见 docs/07-测试与验证.md 第 7 节。
+# 模块默认随 ASN1_BUILD_MODULES 构建；这里显式打开 asn1-pkcs，确保其用例
+# 进入全部 24 个组合，不依赖选项默认值。
 
 name: ci
 
@@ -102,6 +101,7 @@ jobs:
             -DASN1_BUILD_TESTS=ON \
             -DASN1_BUILD_EXAMPLES=ON \
             -DASN1_WARNINGS_AS_ERRORS=ON \
+            -DASN1_BUILD_MODULE_PKCS=ON \
             -DASN1_BUILD_SHARED=${{ matrix.link_mode == 'shared' && 'ON' || 'OFF' }} \
             -DASN1_BUILD_STATIC=${{ matrix.link_mode == 'static' && 'ON' || 'OFF' }}
 
@@ -116,6 +116,7 @@ jobs:
             -DASN1_BUILD_TESTS=ON \
             -DASN1_BUILD_EXAMPLES=ON \
             -DASN1_WARNINGS_AS_ERRORS=ON \
+            -DASN1_BUILD_MODULE_PKCS=ON \
             -DASN1_BUILD_SHARED=${{ matrix.link_mode == 'shared' && 'ON' || 'OFF' }} \
             -DASN1_BUILD_STATIC=${{ matrix.link_mode == 'static' && 'ON' || 'OFF' }}
 
@@ -127,6 +128,7 @@ jobs:
             -DASN1_BUILD_TESTS=ON \
             -DASN1_BUILD_EXAMPLES=ON \
             -DASN1_WARNINGS_AS_ERRORS=ON \
+            -DASN1_BUILD_MODULE_PKCS=ON \
             -DASN1_BUILD_SHARED=${{ matrix.link_mode == 'shared' && 'ON' || 'OFF' }} \
             -DASN1_BUILD_STATIC=${{ matrix.link_mode == 'static' && 'ON' || 'OFF' }} \
             -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
