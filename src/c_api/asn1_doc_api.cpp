@@ -65,6 +65,96 @@ void encodeSubidentifier(uint64_t value, uint8_t *out,
     *outCursor = cursor;
 }
 
+/* 单个完整 TLV 头部信息；headerSize 不含内容。 */
+struct TlvHeader {
+    uint32_t tagClass;
+    uint32_t tagNumber;
+    bool constructed;
+    size_t headerSize;
+    size_t contentSize;
+};
+
+/*
+ * 严格解析恰好一个完整、长度确定的 TLV。成功要求 headerSize + contentSize
+ * 等于 size，否则按截断/尾随分别报错；outErrorOffset 记录首个问题字节。
+ */
+asn1_err_t parseSingleTlv(const uint8_t *tlv, size_t size, TlvHeader *out,
+                          size_t *outErrorOffset) noexcept
+{
+    size_t pos = 0;
+    const uint8_t first = tlv[pos++];
+    out->tagClass = (first >> 6) & 0x3U;
+    out->constructed = (first & 0x20U) != 0;
+
+    if ((first & 0x1FU) == 0x1FU) {
+        /* 高位标签：base-128 continuation，首字节不得是 0x80。 */
+        uint32_t number = 0;
+        bool firstPart = true;
+        for (;;) {
+            if (pos >= size) {
+                *outErrorOffset = pos;
+                return ASN1_E_TRUNCATED;
+            }
+            const uint8_t part = tlv[pos];
+            if (firstPart && part == 0x80U) {
+                *outErrorOffset = pos;
+                return ASN1_E_MALFORMED_TAG;
+            }
+            firstPart = false;
+            if (number > (UINT32_MAX >> 7)) {
+                *outErrorOffset = pos;
+                return ASN1_E_MALFORMED_TAG;
+            }
+            number = (number << 7) | (part & 0x7FU);
+            ++pos;
+            if ((part & 0x80U) == 0) {
+                break;
+            }
+        }
+        out->tagNumber = number;
+    } else {
+        out->tagNumber = first & 0x1FU;
+    }
+
+    if (pos >= size) {
+        *outErrorOffset = pos;
+        return ASN1_E_TRUNCATED;
+    }
+    const uint8_t lengthByte = tlv[pos++];
+    size_t contentSize = 0;
+    if (lengthByte < 0x80U) {
+        contentSize = lengthByte;
+    } else if (lengthByte == 0x80U) {
+        *outErrorOffset = pos - 1;
+        return ASN1_E_INDEFINITE_NOT_ALLOWED;
+    } else {
+        const size_t octets = lengthByte & 0x7FU;
+        if (octets > sizeof(size_t)) {
+            *outErrorOffset = pos - 1;
+            return ASN1_E_MALFORMED_LENGTH;
+        }
+        if (octets > size - pos) {
+            *outErrorOffset = pos;
+            return ASN1_E_TRUNCATED;
+        }
+        for (size_t i = 0; i < octets; ++i) {
+            contentSize = (contentSize << 8) | tlv[pos++];
+        }
+    }
+
+    out->headerSize = pos;
+    out->contentSize = contentSize;
+    if (contentSize > size - pos) {
+        *outErrorOffset = size;
+        return ASN1_E_TRUNCATED;
+    }
+    if (contentSize < size - pos) {
+        *outErrorOffset = pos + contentSize;
+        return ASN1_E_TRAILING_DATA;
+    }
+    return ASN1_OK;
+}
+
 /* 解析十进制无符号数；失败返回 false。 */
 bool parseDecimal(const char *text, size_t *cursor, uint64_t *outValue) noexcept
 {
@@ -180,6 +270,67 @@ extern "C" asn1_err_t asn1_node_create(asn1_doc_t *docHandle,
     const asn1_err_t rc = asn1::documentCreateNode(
         doc, parent, static_cast<uint32_t>(tag_class), tag_number,
         constructed != 0, depth, SIZE_MAX, 0, nullptr, 0, &node);
+    if (rc != ASN1_OK) {
+        return rc;
+    }
+
+    *out_node = reinterpret_cast<asn1_node_t *>(node);
+    return ASN1_OK;
+}
+
+extern "C" asn1_err_t asn1_node_create_any(asn1_doc_t *docHandle,
+                                          asn1_node_t *parentHandle,
+                                          const uint8_t *tlv, size_t tlv_size,
+                                          asn1_node_t **out_node)
+{
+    if (docHandle == nullptr || out_node == nullptr) {
+        return ASN1_E_INVALID_ARG;
+    }
+    *out_node = nullptr;
+
+    asn1::Document *doc = documentOf(docHandle);
+    if (doc->magic != asn1::kDocumentMagic) {
+        return ASN1_E_INVALID_ARG;
+    }
+    if (tlv == nullptr || tlv_size == 0) {
+        asn1::contextSetError(doc->ctx, ASN1_E_INVALID_ARG, 0, 0);
+        return ASN1_E_INVALID_ARG;
+    }
+
+    TlvHeader header;
+    size_t errorOffset = 0;
+    const asn1_err_t parseRc =
+        parseSingleTlv(tlv, tlv_size, &header, &errorOffset);
+    if (parseRc != ASN1_OK) {
+        asn1::contextSetError(doc->ctx, parseRc, errorOffset, 0);
+        return parseRc;
+    }
+
+    asn1::Node *parent = nullptr;
+    uint32_t depth = 0;
+    if (parentHandle != nullptr) {
+        parent = nodeOf(parentHandle);
+        if (parent->document != doc) {
+            asn1::contextSetError(doc->ctx, ASN1_E_INVALID_ARG, SIZE_MAX, 0);
+            return ASN1_E_INVALID_ARG;
+        }
+        depth = parent->depth + 1;
+    }
+
+    void *copy = nullptr;
+    asn1_err_t rc = asn1::documentAllocate(doc, tlv_size, &copy);
+    if (rc != ASN1_OK) {
+        return rc;
+    }
+    std::memcpy(copy, tlv, tlv_size);
+    const uint8_t *raw = static_cast<const uint8_t *>(copy);
+
+    asn1::Node *node = nullptr;
+    rc = asn1::documentCreateAnyNode(doc, parent, header.tagClass,
+                                     header.tagNumber, header.constructed,
+                                     depth, raw, tlv_size,
+                                     raw + header.headerSize,
+                                     header.contentSize, &node);
     if (rc != ASN1_OK) {
         return rc;
     }

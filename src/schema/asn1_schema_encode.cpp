@@ -144,6 +144,21 @@ bool rawTlvOf(const Document *doc, const Node *node, const uint8_t **outData,
     return true;
 }
 
+/*
+ * 取节点的完整原始 TLV：ANY 节点用自身保留的字节（解码与 runtime 构树
+ * 皆然），其余节点沿用文档输入切片。
+ */
+bool rawTlvOfNode(const Document *doc, const Node *node,
+                  const uint8_t **outData, size_t *outSize)
+{
+    if (nodeIsAny(node) && node->rawTlv != nullptr && node->rawTlvSize != 0) {
+        *outData = node->rawTlv;
+        *outSize = node->rawTlvSize;
+        return true;
+    }
+    return rawTlvOf(doc, node, outData, outSize);
+}
+
 const Node *namedChild(const Node *parent, const char *name)
 {
     if (name == nullptr) {
@@ -210,7 +225,7 @@ bool isDefaultEqual(const Document *doc, const Node *child,
     }
     const uint8_t *raw = nullptr;
     size_t rawSize = 0;
-    if (!rawTlvOf(doc, child, &raw, &rawSize)) {
+    if (!rawTlvOfNode(doc, child, &raw, &rawSize)) {
         return false;
     }
     return rawSize == field.defaultSize &&
@@ -239,7 +254,7 @@ bool sizeAny(const EncState &st, const SchemaType *type, const Node *node,
     if (!nodeIsAny(node)) {
         const uint8_t *raw = nullptr;
         size_t rawSize = 0;
-        if (!rawTlvOf(st.doc, node, &raw, &rawSize)) {
+        if (!rawTlvOfNode(st.doc, node, &raw, &rawSize)) {
             *outError = ASN1_E_INVALID_STATE;
             return false;
         }
@@ -267,7 +282,7 @@ bool sizeAny(const EncState &st, const SchemaType *type, const Node *node,
     } else {
         const uint8_t *raw = nullptr;
         size_t rawSize = 0;
-        if (!rawTlvOf(st.doc, node, &raw, &rawSize)) {
+        if (!rawTlvOfNode(st.doc, node, &raw, &rawSize)) {
             *outError = ASN1_E_INVALID_STATE;
             return false;
         }
@@ -424,7 +439,7 @@ bool addRetainedChild(const EncState &st, const Node *child, size_t *total,
 {
     const uint8_t *raw = nullptr;
     size_t rawSize = 0;
-    if (!rawTlvOf(st.doc, child, &raw, &rawSize)) {
+    if (!rawTlvOfNode(st.doc, child, &raw, &rawSize)) {
         *outError = ASN1_E_INVALID_STATE;
         return false;
     }
@@ -566,7 +581,7 @@ bool sizeOf(const EncState &st, uint32_t typeId, const Node *node,
              child = child->nextSibling) {
             const uint8_t *raw = nullptr;
             size_t rawSize = 0;
-            if (!rawTlvOf(st.doc, child, &raw, &rawSize)) {
+            if (!rawTlvOfNode(st.doc, child, &raw, &rawSize)) {
                 *outError = ASN1_E_INVALID_STATE;
                 return false;
             }
@@ -794,7 +809,7 @@ bool writeSequenceFields(const EncState &st, const SchemaType *type,
             }
             const uint8_t *raw = nullptr;
             size_t rawSize = 0;
-            if (!rawTlvOf(st.doc, child, &raw, &rawSize)) {
+            if (!rawTlvOfNode(st.doc, child, &raw, &rawSize)) {
                 *outError = ASN1_E_INVALID_STATE;
                 ok = false;
                 break;
@@ -950,7 +965,7 @@ bool writeAny(const EncState &st, const SchemaType *type, const Node *node,
         effectiveTagMode(st.schema, type) == ASN1_TAG_MODE_EXPLICIT;
     const uint8_t *raw = nullptr;
     size_t rawSize = 0;
-    if (!rawTlvOf(st.doc, node, &raw, &rawSize)) {
+    if (!rawTlvOfNode(st.doc, node, &raw, &rawSize)) {
         *outError = ASN1_E_INVALID_STATE;
         return false;
     }
@@ -1124,7 +1139,7 @@ bool writeOf(const EncState &st, uint32_t typeId, const Node *node,
              child = child->nextSibling) {
             const uint8_t *raw = nullptr;
             size_t rawSize = 0;
-            if (!rawTlvOf(st.doc, child, &raw, &rawSize)) {
+            if (!rawTlvOfNode(st.doc, child, &raw, &rawSize)) {
                 *outError = ASN1_E_INVALID_STATE;
                 return false;
             }

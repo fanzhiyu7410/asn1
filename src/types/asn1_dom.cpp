@@ -170,6 +170,11 @@ asn1_err_t documentCreateNode(Document *doc, Node *parent, uint32_t tagClass,
         contextSetError(doc->ctx, ASN1_E_INVALID_ARG, SIZE_MAX, depth);
         return ASN1_E_INVALID_ARG;
     }
+    if (parent != nullptr && nodeIsAny(parent)) {
+        /* ANY 以保留的原始 TLV 完整表达，不得再挂子节点。 */
+        contextSetError(doc->ctx, ASN1_E_INVALID_STATE, SIZE_MAX, depth);
+        return ASN1_E_INVALID_STATE;
+    }
     if (parent != nullptr && !nodeIsConstructed(parent)) {
         contextSetError(doc->ctx, ASN1_E_INVALID_STATE, SIZE_MAX, depth);
         return ASN1_E_INVALID_STATE;

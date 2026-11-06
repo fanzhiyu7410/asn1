@@ -21,6 +21,9 @@ target_link_libraries(test_der_strict PRIVATE asn1_test_support)
 asn1_add_test(test_any test_any.c)
 target_link_libraries(test_any PRIVATE asn1_test_support asn1_test_schema_probe)
 
+asn1_add_test(test_build_any test_build_any.c)
+target_link_libraries(test_build_any PRIVATE asn1_test_support)
+
 asn1_add_test(test_schema_decode test_schema_decode.c)
 target_link_libraries(test_schema_decode PRIVATE asn1_test_support)
 

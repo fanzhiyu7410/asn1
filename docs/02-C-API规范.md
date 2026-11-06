@@ -372,7 +372,8 @@ WrappedChoice ::= [0] EXPLICIT ExampleChoice
 - 无包装形态下，`asn1_node_tlv` 返回**原始完整 TLV**（含 tag 与 length，BER 不定长时含结尾 EOC），长度与源字节一致；`asn1_node_content` 返回**原始内容字节**（不含 tag/len），构造型 ANY 同样返回该切片。这与普通构造节点的 `ASN1_E_INVALID_STATE` 行为不同。空内容（例如 `NULL` 的 `05 00`）允许 `*out_size = 0`。
 - `asn1_node_parent` 仍返回其父节点，`asn1_node_encoding_form`、`asn1_node_is_indefinite` 反映外层（无包装时为自身）TLV 的形态。
 - ANY 节点不可改写：`asn1_doc_set_node_content` 对 ANY 返回 `ASN1_E_INVALID_STATE`。
-- 编码：无 schema 的通用编码器按节点保存的 TLV 原样写回（此时节点 TLV 已是含包装的完整形态，不重复加包装）；schema 感知编码对 EXPLICIT ANY 按 schema 重新加外层包装，对无包装 ANY 写回原始 TLV。**schema 感知 DER 编码要求这些保留 TLV 是规范 DER**：BER 不定长、非最短长度、长形式标签表示小 tag number、构造字符串、非规范基本值、未排序 `SET`/`SET OF` 等返回 `ASN1_E_NON_CANONICAL`，不做隐式重新编码；无 schema 通用编码路径仍允许 BER 源原样往返。若节点缺少可用原始 TLV（例如 runtime 构树的 ANY 节点），编码返回 `ASN1_E_INVALID_STATE`。该错误码是“保留 TLV 与节点状态不一致”的唯一约定值。
+- 编码：无 schema 的通用编码器按节点保存的 TLV 原样写回（此时节点 TLV 已是含包装的完整形态，不重复加包装）；schema 感知编码对 EXPLICIT ANY 按 schema 重新加外层包装，对无包装 ANY 写回原始 TLV。**schema 感知 DER 编码要求这些保留 TLV 是规范 DER**：BER 不定长、非最短长度、长形式标签表示小 tag number、构造字符串、非规范基本值、未排序 `SET`/`SET OF` 等返回 `ASN1_E_NON_CANONICAL`，不做隐式重新编码；无 schema 通用编码路径仍允许 BER 源原样往返。若节点缺少可用原始 TLV（例如既不是解码节点、也不是 ANY 节点的 runtime 构树节点），编码返回 `ASN1_E_INVALID_STATE`。该错误码是“保留 TLV 与节点状态不一致”的唯一约定值。
+- **runtime 构树 ANY**：`asn1_node_create_any` 接受的原始 TLV 复制进文档 arena 并挂在节点上，因此 `asn1_node_tlv` 对这类节点同样返回完整 TLV，`asn1_node_content` 返回内容切片。其编码行为与解码得到的 ANY 一致：无 schema 通用编码逐字节写回；schema 感知编码按同一套 `ASN1_E_NON_CANONICAL` 规则校验保留 TLV。ANY 节点不建立子节点，`asn1_node_create` 以其为父节点返回 `ASN1_E_INVALID_STATE`。
 
 **SEQUENCE 中的消歧规则（封存期强制）**
 
@@ -509,6 +510,10 @@ ASN1_API asn1_err_t asn1_node_create(asn1_doc_t *doc,
                                      uint32_t tag_number,
                                      int constructed,
                                      asn1_node_t **out_node);
+ASN1_API asn1_err_t asn1_node_create_any(asn1_doc_t *doc,
+                                        asn1_node_t *parent,
+                                        const uint8_t *tlv, size_t tlv_size,
+                                        asn1_node_t **out_node);
 ASN1_API asn1_err_t asn1_node_set_content(asn1_node_t *node,
                                           const uint8_t *data, size_t size);
 ASN1_API asn1_err_t asn1_node_set_bool(asn1_node_t *node, int value);
@@ -600,6 +605,7 @@ ASN1_API asn1_err_t asn1_buf_release(asn1_ctx_t *ctx, asn1_buf_t *buf);
 - `asn1_doc_create` 创建一个空文档；该文档在 `asn1_doc_seal` 前可写，封存后只读。
 - `asn1_node_create` 的 `parent == NULL` 表示设置根节点；根节点只能创建一次。非空 `parent` 表示追加为最后一个子节点。
 - `constructed` 参数是**运行期构造位**，只决定该节点在输出编码中是否带构造形式，不是 schema 的种类字段：构造节点通过子节点表达内容，不接受 `asn1_node_set_content`；基本节点必须设置一次内容。解码文档的实际形态通过 `asn1_node_encoding_form` 观测。
+- `asn1_node_create_any(doc, parent, tlv, tlv_size, out_node)` 创建 runtime ANY 节点：`tlv` 必须恰好是一个完整、长度确定的 TLV，字节复制进文档 arena；标签类别/标签号/构造形态从 TLV 头推导。拒绝空输入（`ASN1_E_INVALID_ARG`）、截断（`ASN1_E_TRUNCATED`）、不定长（`ASN1_E_INDEFINITE_NOT_ALLOWED`）、尾随字节（`ASN1_E_TRAILING_DATA`）、畸形标签/长度（`ASN1_E_MALFORMED_TAG` / `ASN1_E_MALFORMED_LENGTH`），并写入上下文错误 `offset`（TLV 内字节偏移）。ANY 节点不得挂子节点：以 ANY 为 `parent` 调用 `asn1_node_create` 返回 `ASN1_E_INVALID_STATE`；ANY 节点也不接受内容设置函数。
 - `asn1_node_set_content/set_bool/set_int64/set_oid/set_utf8` 把内容复制到文档 arena；同一节点只能设置一次，重复设置返回 `ASN1_E_INVALID_STATE`。
 - 内容设置函数的标签匹配由调用方负责：例如 `set_bool` 用于 BOOLEAN，`set_int64` 用于 INTEGER/ENUMERATED。库在封存时检查结构与内容存在性，但不做模式语义校验。
 - `asn1_doc_seal` 冻结树并校验结构：根节点缺失、基本节点未设置内容、构造节点设置了内容三种失败均返回 `ASN1_E_INVALID_STATE`，文档仍可销毁；标签号/类别与 EOC（UNIVERSAL 0）在 `asn1_node_create` 阶段校验，非法返回 `ASN1_E_INVALID_ARG`。对已封存文档再次调用返回 `ASN1_OK`（幂等）。
@@ -904,6 +910,7 @@ struct asn1_buf {
 - **未知字段保留**：schema 感知编码时，凡未匹配到 schema 字段的子节点一律保留，**不限于** `ASN1_TYPE_EXTENSIBLE`。`SEQUENCE` 中已知字段按 schema 声明顺序在前，未匹配字段按 DOM 中的原始相对顺序追加到已知字段之后，未匹配字段之间不重排。`SET` 不得直接追加未知字段：本轮不做“已知 + 未知合并排序”，`SET` 中出现未匹配子节点返回 `ASN1_E_SCHEMA_FIELD`，绝不静默产出非法 DER。
 - **严格检查**：`asn1_encode_*` 没有严格开关，默认保留未知字段；需要严格检查时先调用 `asn1_doc_validate(..., ASN1_DECODE_STRICT_SCHEMA)`，该路径对未知字段返回 `ASN1_E_SCHEMA_FIELD`。
 - **ANY 与保留 TLV 的 DER 一致性**：schema 感知 DER 编码中，`ANY` 节点与保留的未知字段只保证**规范 DER 源**按其原始 TLV 逐字节回写；BER 不定长、非最短长度、长形式标签表示小 tag number、构造字符串、非规范基本值、未排序 `SET`/`SET OF` 等非规范源返回 `ASN1_E_NON_CANONICAL`，**不做隐式重新编码**。无 schema 的通用编码路径（`schema == NULL`）对 `ANY` 仍按节点保存的 TLV 原样写回，允许 BER 源往返；其余普通节点按通用 DER 规范化重建。
+- **runtime 构树 ANY 一致性**：解码得到的 ANY 与 `asn1_node_create_any` 建立的 runtime ANY 在两条编码路径上行为一致——原始 TLV 均来自节点自身保留的字节；schema 路径同样执行上述规范性校验，不因来源不同而放宽或拒绝。
 - **DEFAULT 省略**：启用 schema 时，字段编码结果与 schema 中的规范 DER 默认值逐字节相同时省略该字段；未启用 schema 时无法判定 DEFAULT，一律输出。
 - **OPTIONAL**：未出现的可选字段不输出；出现但值等于默认值的 DEFAULT 字段按上一条省略。
 - **SET OF 排序**：按 DER 规则，将每个元素的完整 DER 编码字节按无符号字典序升序排列。启用 schema 时按元素类型的 schema 语义先规范化再排序；未启用 schema 时按节点保存的完整 TLV 字节排序。
