@@ -1,0 +1,8 @@
+# Copyright (c) 2026 asn1 project contributors
+# SPDX-License-Identifier: MIT
+
+@PACKAGE_INIT@
+
+include("${CMAKE_CURRENT_LIST_DIR}/asn1Targets.cmake")
+
+check_required_components(asn1)

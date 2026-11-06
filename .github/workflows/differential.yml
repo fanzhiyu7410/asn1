@@ -1,0 +1,71 @@
+# Copyright (c) 2026 asn1 project contributors
+# SPDX-License-Identifier: MIT
+#
+# 差分测试：核心 DER 解码 vs OpenSSL asn1parse（主参照），asn1tools（可选）。
+# 参照工具缺失时显式 skipped，绝不静默通过。
+# 说明：本仓库当前无远端，本文件未在 GitHub Actions 上实际触发过。
+
+name: differential
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  differential:
+    name: der-differential
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 检查参照工具
+        id: tools
+        shell: bash
+        run: |
+          if command -v openssl >/dev/null 2>&1; then
+            echo "openssl=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "openssl=no" >> "$GITHUB_OUTPUT"
+          fi
+          if python3 -c "import asn1tools" >/dev/null 2>&1; then
+            echo "asn1tools=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "asn1tools=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 安装 asn1tools（可选参照）
+        if: steps.tools.outputs.asn1tools == 'no'
+        run: pip install asn1tools || true
+
+      - name: 构建 asn1_dump
+        if: steps.tools.outputs.openssl == 'yes'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DASN1_BUILD_STATIC=ON -DASN1_BUILD_SHARED=OFF \
+            -DASN1_BUILD_TESTS=OFF -DASN1_BUILD_TOOLS=OFF \
+            -DASN1_BUILD_DIFFERENTIAL=ON
+          cmake --build build --parallel
+
+      - name: 差分（OpenSSL + 可选 asn1tools）
+        if: steps.tools.outputs.openssl == 'yes'
+        run: |
+          set +e
+          python3 tests/differential/diff_asn1.py \
+            --asn1-dump build/tests/differential/asn1_dump
+          rc=$?
+          set -e
+          if [ "$rc" -eq 2 ]; then
+            echo "SKIPPED: 参照工具缺失，差分未执行"
+            exit 0
+          fi
+          exit "$rc"
+
+      - name: 标记跳过（openssl 缺失）
+        if: steps.tools.outputs.openssl == 'no'
+        run: |
+          echo "SKIPPED: openssl 未安装，差分未执行"

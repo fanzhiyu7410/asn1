@@ -1,0 +1,190 @@
+# Copyright (c) 2026 asn1 project contributors
+# SPDX-License-Identifier: MIT
+#
+# 统一 CI 矩阵：每个平台只跑同一套核心步骤
+#   cmake -S . -B build -> cmake --build build -> ctest
+# 覆盖 Debug/Release 与共享/静态四种组合，全部开启 ASN1_WARNINGS_AS_ERRORS。
+#
+# 说明：本仓库当前没有远端，本文件未在 GitHub Actions 上实际触发过；
+# 本地等价命令见 docs/07-测试与验证.md 第 7 节。
+
+name: ci
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}-${{ matrix.name }}-${{ matrix.build_type }}-${{ matrix.link_mode }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.name }}-${{ matrix.build_type }}-${{ matrix.link_mode }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-gcc
+            os: ubuntu-24.04
+            cc: gcc-13
+            cxx: g++-13
+            generator: Ninja
+          - name: linux-clang
+            os: ubuntu-24.04
+            cc: clang
+            cxx: clang++
+            generator: Ninja
+          - name: macos-x86_64
+            os: macos-13
+            cc: clang
+            cxx: clang++
+            generator: Ninja
+          - name: macos-arm64
+            os: macos-14
+            cc: clang
+            cxx: clang++
+            generator: Ninja
+          - name: windows-msvc
+            os: windows-2022
+            cc: ""
+            cxx: ""
+            generator: ""
+          - name: windows-mingw
+            os: windows-2022
+            cc: gcc
+            cxx: g++
+            generator: Ninja
+        build_type: [Debug, Release]
+        link_mode: [shared, static]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 Linux 工具链
+        if: matrix.name == 'linux-gcc' || matrix.name == 'linux-clang'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build
+          if [ "${{ matrix.cc }}" = "gcc-13" ]; then
+            sudo apt-get install -y gcc-13 g++-13
+          fi
+
+      - name: 安装 MinGW 工具链（MSYS2）
+        if: matrix.name == 'windows-mingw'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: false
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+          path-type: inherit
+
+      - name: 配置（Linux/macOS）
+        if: matrix.name != 'windows-msvc' && matrix.name != 'windows-mingw'
+        shell: bash
+        run: |
+          cmake -S . -B build -G "${{ matrix.generator }}" \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DCMAKE_C_COMPILER=${{ matrix.cc }} \
+            -DCMAKE_CXX_COMPILER=${{ matrix.cxx }} \
+            -DASN1_BUILD_TESTS=ON \
+            -DASN1_BUILD_EXAMPLES=ON \
+            -DASN1_WARNINGS_AS_ERRORS=ON \
+            -DASN1_BUILD_SHARED=${{ matrix.link_mode == 'shared' && 'ON' || 'OFF' }} \
+            -DASN1_BUILD_STATIC=${{ matrix.link_mode == 'static' && 'ON' || 'OFF' }}
+
+      - name: 配置（MinGW）
+        if: matrix.name == 'windows-mingw'
+        shell: msys2 {0}
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DCMAKE_C_COMPILER=gcc \
+            -DCMAKE_CXX_COMPILER=g++ \
+            -DASN1_BUILD_TESTS=ON \
+            -DASN1_BUILD_EXAMPLES=ON \
+            -DASN1_WARNINGS_AS_ERRORS=ON \
+            -DASN1_BUILD_SHARED=${{ matrix.link_mode == 'shared' && 'ON' || 'OFF' }} \
+            -DASN1_BUILD_STATIC=${{ matrix.link_mode == 'static' && 'ON' || 'OFF' }}
+
+      - name: 配置（MSVC）
+        if: matrix.name == 'windows-msvc'
+        shell: bash
+        run: |
+          cmake -S . -B build -A x64 \
+            -DASN1_BUILD_TESTS=ON \
+            -DASN1_BUILD_EXAMPLES=ON \
+            -DASN1_WARNINGS_AS_ERRORS=ON \
+            -DASN1_BUILD_SHARED=${{ matrix.link_mode == 'shared' && 'ON' || 'OFF' }} \
+            -DASN1_BUILD_STATIC=${{ matrix.link_mode == 'static' && 'ON' || 'OFF' }} \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+
+      - name: 构建（Linux/macOS）
+        if: matrix.name != 'windows-msvc' && matrix.name != 'windows-mingw'
+        shell: bash
+        run: cmake --build build --parallel
+
+      - name: 构建（MinGW）
+        if: matrix.name == 'windows-mingw'
+        shell: msys2 {0}
+        run: cmake --build build --parallel
+
+      - name: 构建（MSVC）
+        if: matrix.name == 'windows-msvc'
+        shell: bash
+        run: cmake --build build --config ${{ matrix.build_type }} --parallel
+
+      - name: 测试（Linux/macOS）
+        if: matrix.name != 'windows-msvc' && matrix.name != 'windows-mingw'
+        shell: bash
+        run: ctest --test-dir build --output-on-failure
+
+      - name: 测试（MinGW）
+        if: matrix.name == 'windows-mingw'
+        shell: msys2 {0}
+        run: ctest --test-dir build --output-on-failure
+
+      - name: 测试（MSVC）
+        if: matrix.name == 'windows-msvc'
+        shell: bash
+        run: ctest --test-dir build -C ${{ matrix.build_type }} --output-on-failure
+
+  # 交叉编译只验证“能构建、能链接、产物尺寸”，不在 CI 内运行目标代码。
+  freestanding-arm:
+    name: linux-freestanding-arm
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 安装 ARM 裸机工具链
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build gcc-arm-none-eabi \
+            libstdc++-arm-none-eabi-newlib
+
+      - name: 配置（Cortex-M4F，静态 + freestanding）
+        run: |
+          cmake -S . -B build-arm -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=cmake/toolchains/arm-none-eabi-cortex-m4.cmake \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DASN1_BUILD_SHARED=OFF \
+            -DASN1_BUILD_STATIC=ON \
+            -DASN1_FREESTANDING=ON \
+            -DASN1_BUILD_MODULES=OFF \
+            -DASN1_BUILD_TOOLS=OFF \
+            -DASN1_BUILD_EMBEDDED_TEST=ON \
+            -DASN1_WARNINGS_AS_ERRORS=ON
+
+      - name: 构建（只链接，不运行）
+        run: cmake --build build-arm --parallel
+
+      - name: 输出产物尺寸
+        run: |
+          arm-none-eabi-size build-arm/tests/embedded/test_embedded_pool
+          ls -l build-arm/src/libasn1_static.a
