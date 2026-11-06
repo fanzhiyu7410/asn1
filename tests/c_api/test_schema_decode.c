@@ -1445,6 +1445,173 @@ int main(void)
         asn1_schema_destroy(schema);
     }
 
+    {
+        /* IMPLICIT 覆盖的 SEQUENCE：schema 编码往返稳定在类型自身 context 标签。 */
+        asn1_schema_t *schema = NULL;
+        ASN1_TEST_CHECK(asn1_schema_create(ctx, ASN1_TAG_MODE_DEFAULT,
+                                           &schema) == ASN1_OK);
+        uint32_t intId = 0;
+        uint32_t seqId = 0;
+        asn1_type_desc_t intType =
+            make_type("Int", ASN1_TYPE_KIND_SIMPLE, ASN1_TAG_UNIVERSAL, 2,
+                      ASN1_TAG_MODE_DEFAULT, 0);
+        ASN1_TEST_CHECK(asn1_schema_add_type(schema, &intType, &intId) ==
+                        ASN1_OK);
+        asn1_type_desc_t seqType =
+            make_type("ImplicitSeq", ASN1_TYPE_KIND_SEQUENCE, ASN1_TAG_CONTEXT,
+                      13, ASN1_TAG_MODE_IMPLICIT, 0);
+        ASN1_TEST_CHECK(asn1_schema_add_type(schema, &seqType, &seqId) ==
+                        ASN1_OK);
+        asn1_field_desc_t xField = make_field("x", intId, 0);
+        ASN1_TEST_CHECK(asn1_schema_add_field(schema, seqId, &xField) ==
+                        ASN1_OK);
+        ASN1_TEST_CHECK(asn1_schema_set_root(schema, seqId) == ASN1_OK);
+        ASN1_TEST_CHECK(asn1_schema_seal(schema) == ASN1_OK);
+
+        static const uint8_t kImplSeq[5] = {0xAD, 0x03, 0x02, 0x01, 0x05};
+        asn1_doc_t *doc = NULL;
+        ASN1_TEST_CHECK(decode_schema(ctx, schema, kImplSeq, sizeof(kImplSeq),
+                                      0, &doc) == ASN1_OK);
+        asn1_encode_options_t options;
+        asn1_encode_options_init(&options);
+        options.schema = schema;
+        asn1_buf_t buf;
+        memset(&buf, 0, sizeof(buf));
+        ASN1_TEST_CHECK(asn1_encode_buffer(ctx, doc, &options, &buf) ==
+                        ASN1_OK);
+        ASN1_TEST_CHECK(bytes_equal(buf.data, buf.size, kImplSeq,
+                                    sizeof(kImplSeq)));
+        asn1_doc_destroy(doc);
+
+        /* 编码结果再解码：字段值与原始输入一致。 */
+        ASN1_TEST_CHECK(decode_schema(ctx, schema, buf.data, buf.size, 0,
+                                      &doc) == ASN1_OK);
+        const asn1_node_t *root = asn1_doc_root(doc);
+        int64_t value = 0;
+        ASN1_TEST_CHECK(asn1_node_get_int64(asn1_node_child_by_name(root, "x"),
+                                            &value) == ASN1_OK);
+        ASN1_TEST_CHECK(value == 5);
+        asn1_doc_destroy(doc);
+        ASN1_TEST_CHECK(asn1_buf_release(ctx, &buf) == ASN1_OK);
+        asn1_schema_destroy(schema);
+    }
+
+    {
+        /* IMPLICIT 覆盖的 SET：schema 编码沿用 DER SET OF 排序并往返稳定。 */
+        asn1_schema_t *schema = NULL;
+        ASN1_TEST_CHECK(asn1_schema_create(ctx, ASN1_TAG_MODE_DEFAULT,
+                                           &schema) == ASN1_OK);
+        uint32_t intId = 0;
+        uint32_t octId = 0;
+        uint32_t setId = 0;
+        asn1_type_desc_t intType =
+            make_type("Int", ASN1_TYPE_KIND_SIMPLE, ASN1_TAG_UNIVERSAL, 2,
+                      ASN1_TAG_MODE_DEFAULT, 0);
+        ASN1_TEST_CHECK(asn1_schema_add_type(schema, &intType, &intId) ==
+                        ASN1_OK);
+        asn1_type_desc_t octType =
+            make_type("Octets", ASN1_TYPE_KIND_SIMPLE, ASN1_TAG_UNIVERSAL, 4,
+                      ASN1_TAG_MODE_DEFAULT, 0);
+        ASN1_TEST_CHECK(asn1_schema_add_type(schema, &octType, &octId) ==
+                        ASN1_OK);
+        asn1_type_desc_t setType =
+            make_type("ImplicitSet", ASN1_TYPE_KIND_SET, ASN1_TAG_CONTEXT, 14,
+                      ASN1_TAG_MODE_IMPLICIT, 0);
+        ASN1_TEST_CHECK(asn1_schema_add_type(schema, &setType, &setId) ==
+                        ASN1_OK);
+        asn1_field_desc_t aField = make_field("a", intId, 0);
+        asn1_field_desc_t bField = make_field("b", octId, 0);
+        ASN1_TEST_CHECK(asn1_schema_add_field(schema, setId, &aField) ==
+                        ASN1_OK);
+        ASN1_TEST_CHECK(asn1_schema_add_field(schema, setId, &bField) ==
+                        ASN1_OK);
+        ASN1_TEST_CHECK(asn1_schema_set_root(schema, setId) == ASN1_OK);
+        ASN1_TEST_CHECK(asn1_schema_seal(schema) == ASN1_OK);
+
+        static const uint8_t kImplSet[8] = {0xAE, 0x06, 0x02, 0x01, 0x05,
+                                            0x04, 0x01, 0x41};
+        asn1_doc_t *doc = NULL;
+        ASN1_TEST_CHECK(decode_schema(ctx, schema, kImplSet, sizeof(kImplSet),
+                                      0, &doc) == ASN1_OK);
+        asn1_encode_options_t options;
+        asn1_encode_options_init(&options);
+        options.schema = schema;
+        asn1_buf_t buf;
+        memset(&buf, 0, sizeof(buf));
+        ASN1_TEST_CHECK(asn1_encode_buffer(ctx, doc, &options, &buf) ==
+                        ASN1_OK);
+        ASN1_TEST_CHECK(bytes_equal(buf.data, buf.size, kImplSet,
+                                    sizeof(kImplSet)));
+        asn1_doc_destroy(doc);
+
+        ASN1_TEST_CHECK(decode_schema(ctx, schema, buf.data, buf.size, 0,
+                                      &doc) == ASN1_OK);
+        const asn1_node_t *root = asn1_doc_root(doc);
+        int64_t a = 0;
+        const uint8_t *b = NULL;
+        size_t bSize = 0;
+        ASN1_TEST_CHECK(asn1_node_get_int64(asn1_node_child_by_name(root, "a"),
+                                            &a) == ASN1_OK);
+        ASN1_TEST_CHECK(asn1_node_get_octets(asn1_node_child_by_name(root, "b"),
+                                             &b, &bSize) == ASN1_OK);
+        ASN1_TEST_CHECK(a == 5 && b != NULL && bSize == 1 && b[0] == 0x41);
+        asn1_doc_destroy(doc);
+        ASN1_TEST_CHECK(asn1_buf_release(ctx, &buf) == ASN1_OK);
+        asn1_schema_destroy(schema);
+    }
+
+    {
+        /* IMPLICIT 覆盖的 SEQUENCE OF：schema 编码保持元素顺序并往返稳定。 */
+        asn1_schema_t *schema = NULL;
+        ASN1_TEST_CHECK(asn1_schema_create(ctx, ASN1_TAG_MODE_DEFAULT,
+                                           &schema) == ASN1_OK);
+        uint32_t intId = 0;
+        uint32_t ofId = 0;
+        asn1_type_desc_t intType =
+            make_type("Int", ASN1_TYPE_KIND_SIMPLE, ASN1_TAG_UNIVERSAL, 2,
+                      ASN1_TAG_MODE_DEFAULT, 0);
+        ASN1_TEST_CHECK(asn1_schema_add_type(schema, &intType, &intId) ==
+                        ASN1_OK);
+        asn1_type_desc_t ofType =
+            make_type("ImplicitSeqOf", ASN1_TYPE_KIND_SEQUENCE_OF,
+                      ASN1_TAG_CONTEXT, 15, ASN1_TAG_MODE_IMPLICIT, intId);
+        ASN1_TEST_CHECK(asn1_schema_add_type(schema, &ofType, &ofId) ==
+                        ASN1_OK);
+        ASN1_TEST_CHECK(asn1_schema_set_root(schema, ofId) == ASN1_OK);
+        ASN1_TEST_CHECK(asn1_schema_seal(schema) == ASN1_OK);
+
+        static const uint8_t kImplSeqOf[8] = {0xAF, 0x06, 0x02, 0x01, 0x05,
+                                              0x02, 0x01, 0x06};
+        asn1_doc_t *doc = NULL;
+        ASN1_TEST_CHECK(decode_schema(ctx, schema, kImplSeqOf,
+                                      sizeof(kImplSeqOf), 0, &doc) == ASN1_OK);
+        asn1_encode_options_t options;
+        asn1_encode_options_init(&options);
+        options.schema = schema;
+        asn1_buf_t buf;
+        memset(&buf, 0, sizeof(buf));
+        ASN1_TEST_CHECK(asn1_encode_buffer(ctx, doc, &options, &buf) ==
+                        ASN1_OK);
+        ASN1_TEST_CHECK(bytes_equal(buf.data, buf.size, kImplSeqOf,
+                                    sizeof(kImplSeqOf)));
+        asn1_doc_destroy(doc);
+
+        ASN1_TEST_CHECK(decode_schema(ctx, schema, buf.data, buf.size, 0,
+                                      &doc) == ASN1_OK);
+        const asn1_node_t *root = asn1_doc_root(doc);
+        ASN1_TEST_CHECK(asn1_node_child_count(root) == 2);
+        int64_t first = 0;
+        int64_t second = 0;
+        ASN1_TEST_CHECK(asn1_node_get_int64(asn1_node_child_at(root, 0),
+                                            &first) == ASN1_OK);
+        ASN1_TEST_CHECK(asn1_node_get_int64(asn1_node_child_at(root, 1),
+                                            &second) == ASN1_OK);
+        ASN1_TEST_CHECK(first == 5 && second == 6);
+        asn1_doc_destroy(doc);
+        ASN1_TEST_CHECK(asn1_buf_release(ctx, &buf) == ASN1_OK);
+        asn1_schema_destroy(schema);
+    }
+
     asn1_ctx_destroy(ctx);
     return 0;
 }
