@@ -15,6 +15,97 @@ project(
 set(ASN1_PKCS_SOURCES src/asn1_pkcs_version.cpp)
 set(ASN1_PKCS_TARGETS "")
 
+# 描述表产物：检入 modules/pkcs/generated/，未安装、不进入公共头。
+# 第一切片有 4 个顶层结构，asn1c 每张表只接受一个 --root，因此生成 4 张表。
+set(ASN1_PKCS_CHECKED_IN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/generated")
+set(ASN1_PKCS_ASN1_5208 "${CMAKE_CURRENT_SOURCE_DIR}/asn1/PKCS8-Flattened-5208.asn1")
+set(ASN1_PKCS_ASN1_8017 "${CMAKE_CURRENT_SOURCE_DIR}/asn1/PKCS1-Flattened-8017.asn1")
+
+set(ASN1_PKCS_TABLE_NAMES
+  pkcs8_private_key_info_schema
+  pkcs8_encrypted_private_key_info_schema
+  pkcs1_rsa_public_key_schema
+  pkcs1_rsa_private_key_schema
+)
+set(ASN1_PKCS_TABLE_ROOTS
+  PrivateKeyInfo
+  EncryptedPrivateKeyInfo
+  RSAPublicKey
+  RSAPrivateKey
+)
+set(ASN1_PKCS_TABLE_INPUTS
+  "${ASN1_PKCS_ASN1_5208}"
+  "${ASN1_PKCS_ASN1_5208}"
+  "${ASN1_PKCS_ASN1_8017}"
+  "${ASN1_PKCS_ASN1_8017}"
+)
+
+set(ASN1_PKCS_CHECKED_IN_BINARIES "")
+set(ASN1_PKCS_CHECKED_IN_HEADERS "")
+foreach(name IN LISTS ASN1_PKCS_TABLE_NAMES)
+  list(APPEND ASN1_PKCS_CHECKED_IN_BINARIES "${ASN1_PKCS_CHECKED_IN_DIR}/${name}.bin")
+  list(APPEND ASN1_PKCS_CHECKED_IN_HEADERS "${ASN1_PKCS_CHECKED_IN_DIR}/${name}.h")
+endforeach()
+
+if(ASN1_PKCS_REGENERATE_TABLE)
+  if(NOT TARGET asn1c)
+    message(
+      FATAL_ERROR
+      "ASN1_PKCS_REGENERATE_TABLE=ON 需要同时启用 ASN1_BUILD_TOOLS=ON 以提供 asn1c"
+    )
+  endif()
+  set(pkcs_regenerated_dir "${CMAKE_CURRENT_BINARY_DIR}/generated/table")
+  file(MAKE_DIRECTORY "${pkcs_regenerated_dir}")
+  set(pkcs_regenerated_outputs "")
+
+  foreach(name root input IN ZIP_LISTS ASN1_PKCS_TABLE_NAMES ASN1_PKCS_TABLE_ROOTS ASN1_PKCS_TABLE_INPUTS)
+    set(regenerated_bin "${pkcs_regenerated_dir}/${name}.bin")
+    set(regenerated_header "${pkcs_regenerated_dir}/${name}.h")
+    add_custom_command(
+      OUTPUT "${regenerated_bin}" "${regenerated_header}"
+      COMMAND
+        $<TARGET_FILE:asn1c> -o "${regenerated_bin}" -c "${regenerated_header}"
+        --root "${root}" "${input}"
+      DEPENDS asn1c "${input}"
+      COMMENT "用 asn1c 重新生成 asn1-pkcs 描述表 ${name}（根 ${root}）"
+      VERBATIM
+    )
+    list(APPEND pkcs_regenerated_outputs "${regenerated_bin}" "${regenerated_header}")
+  endforeach()
+
+  add_custom_target(asn1_pkcs_table_generate DEPENDS ${pkcs_regenerated_outputs})
+
+  # 与检入产物逐字节比对；任一差异或缺失即构建失败，避免长期漂移。
+  set(pkcs_verify_commands "")
+  foreach(name IN LISTS ASN1_PKCS_TABLE_NAMES)
+    list(APPEND pkcs_verify_commands
+      COMMAND
+        ${CMAKE_COMMAND} -E compare_files
+        "${pkcs_regenerated_dir}/${name}.bin"
+        "${ASN1_PKCS_CHECKED_IN_DIR}/${name}.bin"
+      COMMAND
+        ${CMAKE_COMMAND} -E compare_files
+        "${pkcs_regenerated_dir}/${name}.h"
+        "${ASN1_PKCS_CHECKED_IN_DIR}/${name}.h"
+    )
+  endforeach()
+  add_custom_target(asn1_pkcs_table_verify
+    ${pkcs_verify_commands}
+    DEPENDS asn1_pkcs_table_generate ${ASN1_PKCS_CHECKED_IN_BINARIES}
+            ${ASN1_PKCS_CHECKED_IN_HEADERS}
+    COMMENT "校验重新生成的 asn1-pkcs 描述表与检入产物逐字节一致"
+    VERBATIM
+  )
+  set(pkcs_table_include_dir "${pkcs_regenerated_dir}")
+else()
+  foreach(path IN LISTS ASN1_PKCS_CHECKED_IN_BINARIES ASN1_PKCS_CHECKED_IN_HEADERS)
+    if(NOT EXISTS "${path}")
+      message(FATAL_ERROR "缺少检入的 asn1-pkcs 描述表产物：${path}")
+    endif()
+  endforeach()
+  set(pkcs_table_include_dir "${ASN1_PKCS_CHECKED_IN_DIR}")
+endif()
+
 asn1_generate_module_version_header(pkcs)
 
 if(ASN1_BUILD_SHARED)

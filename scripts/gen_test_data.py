@@ -8,10 +8,12 @@
 用法：
     python scripts/gen_test_data.py            # 重新生成全部材料与 C 数组头
     python scripts/gen_test_data.py --headers  # 只从已有 .der 重新生成 C 数组头
+    python scripts/gen_test_data.py --derived  # 只从已有 key_rsa_pkcs8.pem 派生
+                                               # PKCS#1 公私钥与加密 PKCS#8 材料
 
 产物：
     tests/data/*.pem  PEM 文本材料（自签名证书、私钥、CSR）
-    tests/data/*.der  DER 二进制材料（证书、PKCS#8 私钥、CSR）
+    tests/data/*.der  DER 二进制材料（证书、PKCS#8 私钥、PKCS#1 公私钥、CSR）
     tests/data/*.h    由 .der 转换出的 C 数组头，供零第三方 C 测试直接 include
     tests/data/README.md 材料来源与重现说明
 
@@ -107,6 +109,29 @@ KEYS = [
 ]
 
 
+# 派生材料：只依赖已提交的 key_rsa_pkcs8.pem，不重新生成密钥。
+# (C 标识符词干, 说明, 类型)
+DERIVED = [
+    (
+        "key_rsa_pkcs1_private",
+        "RSA-2048 私钥（PKCS#1，传统格式）",
+        "rsa_private",
+    ),
+    (
+        "key_rsa_pkcs1_public",
+        "RSA-2048 公钥（PKCS#1）",
+        "rsa_public",
+    ),
+    (
+        "key_rsa_pkcs8_encrypted",
+        "RSA-2048 私钥（PKCS#8，PBES2 / AES-256-CBC 加密）",
+        "pkcs8_encrypted",
+    ),
+]
+
+ENCRYPTED_PASSPHRASE = "asn1-test"
+
+
 def run_openssl(args):
     """调用 openssl，失败时给出可读错误。"""
     command = [OPENSSL] + args
@@ -162,6 +187,40 @@ def generate_certs():
                      "-outform", "DER", "-out", str(der_path)])
 
 
+def generate_derived():
+    """从既有 key_rsa_pkcs8.pem 派生 PKCS#1 公私钥与加密 PKCS#8。"""
+    key_pem = DATA_DIR / "key_rsa_pkcs8.pem"
+    if not key_pem.exists():
+        sys.stderr.write("缺少派生材料源文件：%s\n" % key_pem)
+        raise SystemExit(1)
+    for stem, description, kind in DERIVED:
+        pem_path = DATA_DIR / (stem + ".pem")
+        der_path = DATA_DIR / (stem + ".der")
+        if kind == "rsa_private":
+            run_openssl(["rsa", "-in", str(key_pem), "-traditional",
+                         "-out", str(pem_path)])
+            run_openssl(["rsa", "-in", str(pem_path), "-traditional",
+                         "-outform", "DER", "-out", str(der_path)])
+        elif kind == "rsa_public":
+            run_openssl(["rsa", "-in", str(key_pem), "-RSAPublicKey_out",
+                         "-out", str(pem_path)])
+            run_openssl(["rsa", "-pubin", "-in", str(pem_path),
+                         "-RSAPublicKey_out", "-outform", "DER",
+                         "-out", str(der_path)])
+        elif kind == "pkcs8_encrypted":
+            run_openssl(["pkcs8", "-topk8", "-in", str(key_pem),
+                         "-v2", "aes-256-cbc",
+                         "-passout", "pass:%s" % ENCRYPTED_PASSPHRASE,
+                         "-out", str(pem_path)])
+            run_openssl(["pkcs8", "-topk8", "-in", str(key_pem),
+                         "-v2", "aes-256-cbc",
+                         "-passout", "pass:%s" % ENCRYPTED_PASSPHRASE,
+                         "-outform", "DER", "-out", str(der_path)])
+        else:
+            sys.stderr.write("未知派生类型：%s\n" % kind)
+            raise SystemExit(1)
+
+
 def c_identifier(stem):
     """cert_rsa_selfsigned -> CertRsaSelfsigned。"""
     return "".join(part.capitalize() for part in stem.split("_"))
@@ -211,12 +270,17 @@ C 数组表示，测试运行期不读文件。
 - 生成命令：`python scripts/gen_test_data.py`。
 - 本仓库快照使用 OpenSSL 3.5.9 生成。
 - 只从已有 `.der` 重新生成头文件：`python scripts/gen_test_data.py --headers`。
+- 只派生 PKCS#1 公私钥与加密 PKCS#8（不重新生成既有密钥）：
+  `python scripts/gen_test_data.py --derived`。
 
 | 文件 | 内容 |
 | --- | --- |
 | `key_rsa_pkcs8.pem/.der` | RSA-2048 私钥，PKCS#8，未加密 |
 | `key_ec_pkcs8.pem/.der` | ECDSA P-256 私钥，PKCS#8，未加密 |
 | `key_rsa_pss_pkcs8.pem/.der` | RSA-PSS 2048 私钥，PKCS#8，未加密 |
+| `key_rsa_pkcs1_private.pem/.der` | RSA-2048 私钥，PKCS#1（传统格式） |
+| `key_rsa_pkcs1_public.pem/.der` | RSA-2048 公钥，PKCS#1 `RSAPublicKey` |
+| `key_rsa_pkcs8_encrypted.pem/.der` | RSA-2048 私钥，PKCS#8 `EncryptedPrivateKeyInfo`，PBES2 / AES-256-CBC，口令 `asn1-test` |
 | `csr_rsa.pem/.der` | RSA-2048 证书请求（PKCS#10），SHA-256 |
 | `csr_ec.pem/.der` | ECDSA P-256 证书请求（PKCS#10），SHA-256 |
 | `cert_rsa_selfsigned.pem/.der` | RSA 自签名证书，SHA-256，含 basicConstraints/ SAN |
@@ -243,12 +307,16 @@ SET 乱序、时间缺秒、OID 非最短等）直接写在测试源码的字面
 def main(argv):
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     headers_only = "--headers" in argv[1:]
+    derived_only = "--derived" in argv[1:]
 
     try:
-        if not headers_only:
+        if derived_only and not headers_only:
+            generate_derived()
+        elif not headers_only:
             generate_keys()
             generate_csrs()
             generate_certs()
+            generate_derived()
     finally:
         if _CONFIG_PATH is not None and os.path.exists(_CONFIG_PATH):
             os.unlink(_CONFIG_PATH)

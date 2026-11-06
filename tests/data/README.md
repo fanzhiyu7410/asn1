@@ -10,12 +10,17 @@ C 数组表示，测试运行期不读文件。
 - 生成命令：`python scripts/gen_test_data.py`。
 - 本仓库快照使用 OpenSSL 3.5.9 生成。
 - 只从已有 `.der` 重新生成头文件：`python scripts/gen_test_data.py --headers`。
+- 只派生 PKCS#1 公私钥与加密 PKCS#8（不重新生成既有密钥）：
+  `python scripts/gen_test_data.py --derived`。
 
 | 文件 | 内容 |
 | --- | --- |
 | `key_rsa_pkcs8.pem/.der` | RSA-2048 私钥，PKCS#8，未加密 |
 | `key_ec_pkcs8.pem/.der` | ECDSA P-256 私钥，PKCS#8，未加密 |
 | `key_rsa_pss_pkcs8.pem/.der` | RSA-PSS 2048 私钥，PKCS#8，未加密 |
+| `key_rsa_pkcs1_private.pem/.der` | RSA-2048 私钥，PKCS#1（传统格式） |
+| `key_rsa_pkcs1_public.pem/.der` | RSA-2048 公钥，PKCS#1 `RSAPublicKey` |
+| `key_rsa_pkcs8_encrypted.pem/.der` | RSA-2048 私钥，PKCS#8 `EncryptedPrivateKeyInfo`，PBES2 / AES-256-CBC，口令 `asn1-test` |
 | `csr_rsa.pem/.der` | RSA-2048 证书请求（PKCS#10），SHA-256 |
 | `csr_ec.pem/.der` | ECDSA P-256 证书请求（PKCS#10），SHA-256 |
 | `cert_rsa_selfsigned.pem/.der` | RSA 自签名证书，SHA-256，含 basicConstraints/ SAN |

@@ -17,6 +17,11 @@ option(
   "构建期用 asn1c 重新生成 asn1-pkix 描述表，并与检入产物逐字节比对（默认使用检入产物）"
   OFF
 )
+option(
+  ASN1_PKCS_REGENERATE_TABLE
+  "构建期用 asn1c 重新生成 asn1-pkcs 描述表，并与检入产物逐字节比对（默认使用检入产物）"
+  OFF
+)
 option(ASN1_BUILD_EXAMPLES "构建 C 与 C++ 消费示例" OFF)
 option(ASN1_BUILD_BENCHMARKS "构建可选基准（不进 CTest 主流程）" OFF)
 option(ASN1_BUILD_TESTS "构建单元测试并注册到 CTest" OFF)
