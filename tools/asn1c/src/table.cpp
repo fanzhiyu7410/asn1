@@ -28,6 +28,29 @@ constexpr uint16_t kNameFlagExtension = 1u;
 
 size_t align8(size_t value) { return (value + 7u) & ~static_cast<size_t>(7u); }
 
+/*
+ * 与 std::vector<uint8_t> 的默认 "operator<"（字典序）等价的显式比较器：
+ * 先按两键的公共长度逐字节 memcmp，前缀完全相同再按长度比较。
+ * 这样 GCC 16 + -O3 不会把键比较内联进 std::lexicographical_compare_three_way
+ * 的 __builtin_memcmp 快速路径，避免 -Wstringop-overread 误报；
+ * 比较结果与默认字典序完全一致，map 的键顺序与生成的表字节不受影响。
+ */
+struct ByteVectorLess {
+    bool operator()(const std::vector<uint8_t> &lhs,
+                    const std::vector<uint8_t> &rhs) const
+    {
+        const size_t common =
+            lhs.size() < rhs.size() ? lhs.size() : rhs.size();
+        if (common != 0) {
+            const int cmp = std::memcmp(lhs.data(), rhs.data(), common);
+            if (cmp != 0) {
+                return cmp < 0;
+            }
+        }
+        return lhs.size() < rhs.size();
+    }
+};
+
 void putU8(std::vector<uint8_t> &buffer, size_t offset, uint8_t value)
 {
     buffer[offset] = value;
@@ -166,14 +189,14 @@ TableOutput buildTable(const SchemaModel &model,
             static_cast<uint32_t>(fieldEntries.size()) - layout.fieldStart;
     }
 
-    std::map<std::vector<uint8_t>, uint32_t> defaultIndices;
+    std::map<std::vector<uint8_t>, uint32_t, ByteVectorLess> defaultIndices;
     std::vector<std::vector<uint8_t>> defaults;
     for (FieldEntry &entry : fieldEntries) {
         if (!entry.field->hasDefault) {
             continue;
         }
-        std::map<std::vector<uint8_t>, uint32_t>::const_iterator it =
-            defaultIndices.find(entry.field->defaultTlv);
+        std::map<std::vector<uint8_t>, uint32_t, ByteVectorLess>::const_iterator
+            it = defaultIndices.find(entry.field->defaultTlv);
         if (it == defaultIndices.end()) {
             defaults.push_back(entry.field->defaultTlv);
             const uint32_t index = static_cast<uint32_t>(defaults.size());
