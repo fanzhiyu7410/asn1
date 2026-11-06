@@ -10,6 +10,7 @@
     python scripts/gen_test_data.py --headers  # 只从已有 .der 重新生成 C 数组头
     python scripts/gen_test_data.py --derived  # 只从已有 key_rsa_pkcs8.pem 派生
                                                # PKCS#1 公私钥与加密 PKCS#8 材料
+    python scripts/gen_test_data.py --cms      # 只用已有证书/私钥生成 CMS 样本
 
 产物：
     tests/data/*.pem  PEM 文本材料（自签名证书、私钥、CSR）
@@ -131,6 +132,44 @@ DERIVED = [
 
 ENCRYPTED_PASSPHRASE = "asn1-test"
 
+# CMS 样本：复用已提交的证书与私钥，不生成新密钥。
+# (C 标识符词干, 说明, 签名者参数, 附加参数)
+CMS_SAMPLES = [
+    (
+        "cms_rsa_attached",
+        "RSA SignedData，attached（含 eContent、证书、signedAttrs）",
+        [("cert_rsa_selfsigned.pem", "key_rsa_pkcs8.pem")],
+        ["-nodetach"],
+    ),
+    (
+        "cms_rsa_detached",
+        "RSA SignedData，detached（无 eContent，含证书、signedAttrs）",
+        [("cert_rsa_selfsigned.pem", "key_rsa_pkcs8.pem")],
+        [],
+    ),
+    (
+        "cms_rsa_minimal",
+        "RSA SignedData 最小样本（无证书、无 signedAttrs、detached）",
+        [("cert_rsa_selfsigned.pem", "key_rsa_pkcs8.pem")],
+        ["-nocerts", "-noattr"],
+    ),
+    (
+        "cms_rsa_ec_multicert",
+        "RSA + ECDSA 双签名者 SignedData（多证书，attached）",
+        [("cert_rsa_selfsigned.pem", "key_rsa_pkcs8.pem"),
+         ("cert_ec_selfsigned.pem", "key_ec_pkcs8.pem")],
+        ["-nodetach"],
+    ),
+    (
+        "cms_rsa_keyid",
+        "RSA SignedData，SignerIdentifier 使用 subjectKeyIdentifier",
+        [("cert_rsa_selfsigned.pem", "key_rsa_pkcs8.pem")],
+        ["-keyid"],
+    ),
+]
+
+CMS_CONTENT = b"asn1-cms differential and structure test content\n"
+
 
 def run_openssl(args):
     """调用 openssl，失败时给出可读错误。"""
@@ -221,6 +260,36 @@ def generate_derived():
             raise SystemExit(1)
 
 
+def generate_cms():
+    """用已提交的证书/私钥生成 CMS SignedData 样本。
+
+    签名与 signingTime 含随机/时间成分，重新生成得到的签名字节与仓库内
+    已提交版本不同；测试只依赖结构字段，不依赖固定字节。
+    """
+    for stem in ("cert_rsa_selfsigned.pem", "key_rsa_pkcs8.pem",
+                 "cert_ec_selfsigned.pem", "key_ec_pkcs8.pem"):
+        if not (DATA_DIR / stem).exists():
+            sys.stderr.write("缺少 CMS 材料源文件：%s\n" % (DATA_DIR / stem))
+            raise SystemExit(1)
+
+    handle, content_path = tempfile.mkstemp(prefix="asn1-cms-", suffix=".bin")
+    try:
+        with os.fdopen(handle, "wb") as stream:
+            stream.write(CMS_CONTENT)
+        for stem, description, signers, extra in CMS_SAMPLES:
+            der_path = DATA_DIR / (stem + ".der")
+            command = ["cms", "-sign", "-binary", "-md", "sha256",
+                       "-in", content_path]
+            for cert_file, key_file in signers:
+                command += ["-signer", str(DATA_DIR / cert_file),
+                            "-inkey", str(DATA_DIR / key_file)]
+            command += extra + ["-outform", "DER", "-out", str(der_path)]
+            run_openssl(command)
+    finally:
+        if os.path.exists(content_path):
+            os.unlink(content_path)
+
+
 def c_identifier(stem):
     """cert_rsa_selfsigned -> CertRsaSelfsigned。"""
     return "".join(part.capitalize() for part in stem.split("_"))
@@ -272,6 +341,8 @@ C 数组表示，测试运行期不读文件。
 - 只从已有 `.der` 重新生成头文件：`python scripts/gen_test_data.py --headers`。
 - 只派生 PKCS#1 公私钥与加密 PKCS#8（不重新生成既有密钥）：
   `python scripts/gen_test_data.py --derived`。
+- 只用已提交的证书/私钥生成 CMS SignedData 样本：
+  `python scripts/gen_test_data.py --cms`。
 
 | 文件 | 内容 |
 | --- | --- |
@@ -286,6 +357,11 @@ C 数组表示，测试运行期不读文件。
 | `cert_rsa_selfsigned.pem/.der` | RSA 自签名证书，SHA-256，含 basicConstraints/ SAN |
 | `cert_ec_selfsigned.pem/.der` | ECDSA 自签名证书，SHA-256，含 basicConstraints/ SAN |
 | `cert_rsa_pss_selfsigned.pem/.der` | RSA-PSS 自签名证书，SHA-256，AlgorithmIdentifier.parameters 为 SEQUENCE |
+| `cms_rsa_attached.der` | CMS ContentInfo(SignedData)，attached，含 eContent、证书、signedAttrs |
+| `cms_rsa_detached.der` | CMS ContentInfo(SignedData)，detached，无 eContent，含证书、signedAttrs |
+| `cms_rsa_minimal.der` | CMS ContentInfo(SignedData) 最小样本，detached、无证书、无 signedAttrs |
+| `cms_rsa_ec_multicert.der` | CMS ContentInfo(SignedData)，RSA + ECDSA 双签名者、多证书、attached |
+| `cms_rsa_keyid.der` | CMS ContentInfo(SignedData)，SignerIdentifier 为 subjectKeyIdentifier |
 
 ## 重现性说明
 
@@ -294,6 +370,9 @@ C 数组表示，测试运行期不读文件。
 - 测试只校验“解码→编码逐字节一致”的自洽性，以及结构解析，不依赖固定字节，
   因此重新生成后重新运行测试仍然成立。
 - 证书有效期从生成当天起 3650 天；测试不对具体时间做断言。
+- CMS 样本的签名值（ECDSA 随机）与 signingTime 含随机/时间成分，重跑得到的
+  字节与已提交快照不同；测试只读取结构字段（版本、OID、原始 TLV、计数），
+  不对签名值或时间做断言。
 
 ## 变异样本
 
@@ -308,15 +387,20 @@ def main(argv):
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     headers_only = "--headers" in argv[1:]
     derived_only = "--derived" in argv[1:]
+    cms_only = "--cms" in argv[1:]
 
     try:
-        if derived_only and not headers_only:
-            generate_derived()
+        if not headers_only and (derived_only or cms_only):
+            if derived_only:
+                generate_derived()
+            if cms_only:
+                generate_cms()
         elif not headers_only:
             generate_keys()
             generate_csrs()
             generate_certs()
             generate_derived()
+            generate_cms()
     finally:
         if _CONFIG_PATH is not None and os.path.exists(_CONFIG_PATH):
             os.unlink(_CONFIG_PATH)
