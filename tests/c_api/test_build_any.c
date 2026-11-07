@@ -316,7 +316,96 @@ int main(void)
         asn1_schema_destroy(schema);
     }
 
-    /* ===== 6. 负例：空输入、截断、尾随、不定长、畸形标签/长度 ===== */
+    /* ===== 6. 非规范 DER 的 ANY：创建接受，schema 编码拒绝 ===== */
+    {
+        /* INTEGER 5 带冗余前导零：TLV 结构完整，但不是规范 DER。 */
+        static const uint8_t kNonCanonical[4] = {0x02, 0x02, 0x00, 0x05};
+        static const uint8_t kRawRoundTrip[17] = {
+            0x30, 0x0F, 0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7,
+            0x0D, 0x01, 0x01, 0x01, 0x02, 0x02, 0x00, 0x05};
+        asn1_schema_t *schema = make_algorithm_schema(ctx);
+        ASN1_TEST_CHECK(schema != NULL);
+
+        asn1_doc_t *doc = NULL;
+        ASN1_TEST_CHECK(asn1_doc_create(ctx, &doc) == ASN1_OK);
+        asn1_node_t *root = NULL;
+        ASN1_TEST_CHECK(asn1_node_create(doc, NULL, ASN1_TAG_UNIVERSAL, 16, 1,
+                                         &root) == ASN1_OK);
+        asn1_node_t *oid = NULL;
+        ASN1_TEST_CHECK(asn1_node_create(doc, root, ASN1_TAG_UNIVERSAL, 6, 0,
+                                         &oid) == ASN1_OK);
+        ASN1_TEST_CHECK(asn1_node_set_oid(oid, "1.2.840.113549.1.1.1") ==
+                        ASN1_OK);
+        asn1_node_t *any_node = NULL;
+        ASN1_TEST_CHECK(asn1_node_create_any(doc, root, kNonCanonical,
+                                             sizeof(kNonCanonical),
+                                             &any_node) == ASN1_OK);
+        ASN1_TEST_CHECK(asn1_doc_seal(doc) == ASN1_OK);
+
+        /* schema 感知编码按 DER 校验保留 TLV，拒绝且不产出字节。 */
+        asn1_encode_options_t options;
+        asn1_encode_options_init(&options);
+        options.schema = schema;
+        asn1_buf_t buf;
+        memset(&buf, 0, sizeof(buf));
+        ASN1_TEST_CHECK(asn1_encode_buffer(ctx, doc, &options, &buf) ==
+                        ASN1_E_NON_CANONICAL);
+        ASN1_TEST_CHECK(buf.data == NULL);
+        ASN1_TEST_CHECK(buf.size == 0);
+        ASN1_TEST_CHECK(buf.capacity == 0);
+
+        /* 无 schema 编码不做规范化，原样写出保留的 TLV。 */
+        ASN1_TEST_CHECK(encode_compare(ctx, doc, NULL, kRawRoundTrip,
+                                       sizeof(kRawRoundTrip)) == 0);
+
+        asn1_doc_destroy(doc);
+        asn1_schema_destroy(schema);
+    }
+
+    /* ===== 7. 资源上限透传：保留 TLV 超深时返回 DEPTH_LIMIT ===== */
+    {
+        asn1_ctx_config_t shallow;
+        asn1_ctx_config_init(&shallow);
+        shallow.max_depth = 2;
+        asn1_ctx_t *shallow_ctx = NULL;
+        ASN1_TEST_CHECK(asn1_ctx_create(&shallow, &shallow_ctx) == ASN1_OK);
+
+        /* 三层 SEQUENCE 嵌套：解码深度超过 max_depth = 2。 */
+        static const uint8_t kNested[9] = {0x30, 0x07, 0x30, 0x05, 0x30,
+                                           0x03, 0x02, 0x01, 0x05};
+        asn1_schema_t *schema = make_algorithm_schema(shallow_ctx);
+        ASN1_TEST_CHECK(schema != NULL);
+
+        asn1_doc_t *doc = NULL;
+        ASN1_TEST_CHECK(asn1_doc_create(shallow_ctx, &doc) == ASN1_OK);
+        asn1_node_t *root = NULL;
+        ASN1_TEST_CHECK(asn1_node_create(doc, NULL, ASN1_TAG_UNIVERSAL, 16, 1,
+                                         &root) == ASN1_OK);
+        asn1_node_t *oid = NULL;
+        ASN1_TEST_CHECK(asn1_node_create(doc, root, ASN1_TAG_UNIVERSAL, 6, 0,
+                                         &oid) == ASN1_OK);
+        ASN1_TEST_CHECK(asn1_node_set_oid(oid, "1.2.840.113549.1.1.1") ==
+                        ASN1_OK);
+        asn1_node_t *any_node = NULL;
+        ASN1_TEST_CHECK(asn1_node_create_any(doc, root, kNested,
+                                             sizeof(kNested), &any_node) ==
+                        ASN1_OK);
+        ASN1_TEST_CHECK(asn1_doc_seal(doc) == ASN1_OK);
+
+        asn1_encode_options_t options;
+        asn1_encode_options_init(&options);
+        options.schema = schema;
+        asn1_buf_t buf;
+        memset(&buf, 0, sizeof(buf));
+        ASN1_TEST_CHECK(asn1_encode_buffer(shallow_ctx, doc, &options, &buf) ==
+                        ASN1_E_DEPTH_LIMIT);
+        ASN1_TEST_CHECK(buf.data == NULL && buf.size == 0);
+        asn1_doc_destroy(doc);
+        asn1_schema_destroy(schema);
+        asn1_ctx_destroy(shallow_ctx);
+    }
+
+    /* ===== 8. 负例：空输入、截断、尾随、不定长、畸形标签/长度 ===== */
     {
         static const uint8_t kTruncated[4] = {0x30, 0x03, 0x02, 0x01};
         static const uint8_t kTrailing[6] = {0x30, 0x03, 0x02, 0x01, 0x05, 0xFF};
@@ -368,7 +457,7 @@ int main(void)
         asn1_doc_destroy(doc);
     }
 
-    /* ===== 7. ANY 不得挂子节点、不得设置内容 ===== */
+    /* ===== 9. ANY 不得挂子节点、不得设置内容 ===== */
     {
         asn1_doc_t *doc = NULL;
         ASN1_TEST_CHECK(asn1_doc_create(ctx, &doc) == ASN1_OK);

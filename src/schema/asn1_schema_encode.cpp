@@ -366,7 +366,9 @@ bool validateRetainedDer(Context *ctx, const uint8_t *tlv, size_t size,
         return true;
     }
     if (rc == ASN1_E_NOMEM || rc == ASN1_E_MEMORY_LIMIT ||
-        rc == ASN1_E_STATIC_POOL_EXHAUSTED) {
+        rc == ASN1_E_STATIC_POOL_EXHAUSTED || rc == ASN1_E_DEPTH_LIMIT ||
+        rc == ASN1_E_NODE_LIMIT || rc == ASN1_E_INPUT_LIMIT) {
+        /* 资源/预算类失败不是数据非规范：透传原错误码，避免误导排查。 */
         *outError = rc;
         return false;
     }

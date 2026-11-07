@@ -1613,6 +1613,58 @@ int main(void)
     }
 
     {
+        /* IMPLICIT 覆盖的 SET OF：编码按 DER 排序并稳定在类型自身 context 标签。 */
+        asn1_schema_t *schema = NULL;
+        ASN1_TEST_CHECK(asn1_schema_create(ctx, ASN1_TAG_MODE_DEFAULT,
+                                           &schema) == ASN1_OK);
+        uint32_t intId = 0;
+        uint32_t ofId = 0;
+        asn1_type_desc_t intType =
+            make_type("Int", ASN1_TYPE_KIND_SIMPLE, ASN1_TAG_UNIVERSAL, 2,
+                      ASN1_TAG_MODE_DEFAULT, 0);
+        ASN1_TEST_CHECK(asn1_schema_add_type(schema, &intType, &intId) ==
+                        ASN1_OK);
+        asn1_type_desc_t ofType =
+            make_type("ImplicitSetOf", ASN1_TYPE_KIND_SET_OF,
+                      ASN1_TAG_CONTEXT, 16, ASN1_TAG_MODE_IMPLICIT, intId);
+        ASN1_TEST_CHECK(asn1_schema_add_type(schema, &ofType, &ofId) ==
+                        ASN1_OK);
+        ASN1_TEST_CHECK(asn1_schema_set_root(schema, ofId) == ASN1_OK);
+        ASN1_TEST_CHECK(asn1_schema_seal(schema) == ASN1_OK);
+
+        static const uint8_t kImplSetOf[8] = {0xB0, 0x06, 0x02, 0x01, 0x05,
+                                              0x02, 0x01, 0x06};
+        asn1_doc_t *doc = NULL;
+        ASN1_TEST_CHECK(decode_schema(ctx, schema, kImplSetOf,
+                                      sizeof(kImplSetOf), 0, &doc) == ASN1_OK);
+        asn1_encode_options_t options;
+        asn1_encode_options_init(&options);
+        options.schema = schema;
+        asn1_buf_t buf;
+        memset(&buf, 0, sizeof(buf));
+        ASN1_TEST_CHECK(asn1_encode_buffer(ctx, doc, &options, &buf) ==
+                        ASN1_OK);
+        ASN1_TEST_CHECK(bytes_equal(buf.data, buf.size, kImplSetOf,
+                                    sizeof(kImplSetOf)));
+        asn1_doc_destroy(doc);
+
+        ASN1_TEST_CHECK(decode_schema(ctx, schema, buf.data, buf.size, 0,
+                                      &doc) == ASN1_OK);
+        const asn1_node_t *root = asn1_doc_root(doc);
+        ASN1_TEST_CHECK(asn1_node_child_count(root) == 2);
+        int64_t first = 0;
+        int64_t second = 0;
+        ASN1_TEST_CHECK(asn1_node_get_int64(asn1_node_child_at(root, 0),
+                                            &first) == ASN1_OK);
+        ASN1_TEST_CHECK(asn1_node_get_int64(asn1_node_child_at(root, 1),
+                                            &second) == ASN1_OK);
+        ASN1_TEST_CHECK(first == 5 && second == 6);
+        asn1_doc_destroy(doc);
+        ASN1_TEST_CHECK(asn1_buf_release(ctx, &buf) == ASN1_OK);
+        asn1_schema_destroy(schema);
+    }
+
+    {
         /* 高 tag 号按 base-128 变长编码；schema 编码与通用编码均往返稳定。 */
         static const uint8_t kTag31[4] = {0x9F, 0x1F, 0x01, 0x05};
         static const uint8_t kTag127[4] = {0x9F, 0x7F, 0x01, 0x05};

@@ -55,11 +55,17 @@ ASN1_API asn1_err_t asn1_node_create(asn1_doc_t *doc,
  * 字节复制进文档 arena；tag_class/tag_number/constructed 从 TLV 头推导，
  * content 指向副本内的内容切片（不含 tag/len）。
  *
+ * 本入口只校验 TLV 结构，不校验 DER 规范性：非最短长度、非规范
+ * INTEGER/BOOLEAN 内容等都会被接受。三段分工：创建接受非规范 TLV；
+ * schema 感知编码按 DER 校验并拒绝（ASN1_E_NON_CANONICAL）；无 schema
+ * 编码原样写出保留字节，不做规范化。
+ *
  * 拒绝：空输入（ASN1_E_INVALID_ARG）、截断（ASN1_E_TRUNCATED）、
  * 不定长（ASN1_E_INDEFINITE_NOT_ALLOWED）、尾随字节
  * （ASN1_E_TRAILING_DATA）、畸形标签/长度（ASN1_E_MALFORMED_TAG /
- * ASN1_E_MALFORMED_LENGTH）。失败时 *out_node 置 NULL，并写入上下文
- * 错误 offset（TLV 内字节偏移）。
+ * ASN1_E_MALFORMED_LENGTH）。失败时 *out_node 置 NULL；解析失败写入
+ * 上下文错误 offset（TLV 内字节偏移），父节点不匹配、分配失败等非解析
+ * 失败不保证 offset，调用方应按错误码判断。
  *
  * ANY 节点不得挂子节点；对其调用 asn1_node_create 返回
  * ASN1_E_INVALID_STATE。ANY 节点也不接受 asn1_node_set_content。

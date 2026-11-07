@@ -712,6 +712,39 @@ int main(void)
                                                     0x05, 0x00, 0x00};
         ASN1_TEST_CHECK(roundtrip_any(ctx, kIndefiniteExact,
                                       sizeof(kIndefiniteExact), 1, 3) == 0);
+
+        /* 注释中的承诺落到断言：BER 不定长保留 TLV 在 schema 感知 DER
+           编码时返回 NON_CANONICAL，且不产出字节。 */
+        asn1_schema_t *schema = NULL;
+        ASN1_TEST_CHECK(asn1_schema_create(ctx, ASN1_TAG_MODE_DEFAULT,
+                                           &schema) == ASN1_OK);
+        asn1_type_desc_t any_type = make_any("AnyRoot");
+        uint32_t any_id = 0;
+        ASN1_TEST_CHECK(asn1_schema_add_type(schema, &any_type, &any_id) ==
+                        ASN1_OK);
+        ASN1_TEST_CHECK(asn1_schema_set_root(schema, any_id) == ASN1_OK);
+        ASN1_TEST_CHECK(asn1_schema_seal(schema) == ASN1_OK);
+
+        asn1_decode_options_t decode_options;
+        asn1_decode_options_init(&decode_options);
+        decode_options.encoding = ASN1_ENCODING_BER;
+        asn1_doc_t *doc = NULL;
+        size_t consumed = 0;
+        ASN1_TEST_CHECK(asn1_decode_buffer_with_schema(
+                            ctx, kIndefiniteExact, sizeof(kIndefiniteExact),
+                            schema, &decode_options, &doc, &consumed) ==
+                        ASN1_OK);
+
+        asn1_encode_options_t encode_options;
+        asn1_encode_options_init(&encode_options);
+        encode_options.schema = schema;
+        asn1_buf_t buf;
+        memset(&buf, 0, sizeof(buf));
+        ASN1_TEST_CHECK(asn1_encode_buffer(ctx, doc, &encode_options, &buf) ==
+                        ASN1_E_NON_CANONICAL);
+        ASN1_TEST_CHECK(buf.data == NULL && buf.size == 0);
+        asn1_doc_destroy(doc);
+        asn1_schema_destroy(schema);
     }
 
     /* ===== 4. ANY 作为构造父节点的子节点（schema-aware 等价用例）===== */
