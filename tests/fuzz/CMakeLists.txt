@@ -60,6 +60,28 @@ asn1_add_fuzz_harness(fuzz_schema_decode fuzz_schema_decode.c)
 target_include_directories(fuzz_schema_decode PRIVATE
   ${PROJECT_SOURCE_DIR}/modules/pkix/generated)
 
+# 模块级 open/accessor harness：链接对应模块静态库，覆盖只读访问面。
+if(TARGET asn1::pkix::static)
+  asn1_add_fuzz_harness(fuzz_pkix_open fuzz_pkix_open.c)
+  target_link_libraries(fuzz_pkix_open PRIVATE asn1::pkix::static)
+else()
+  message(WARNING "fuzz_pkix_open 需要 asn1::pkix::static；跳过")
+endif()
+
+if(TARGET asn1::pkcs::static)
+  asn1_add_fuzz_harness(fuzz_pkcs_open fuzz_pkcs_open.c)
+  target_link_libraries(fuzz_pkcs_open PRIVATE asn1::pkcs::static)
+else()
+  message(WARNING "fuzz_pkcs_open 需要 asn1::pkcs::static；跳过")
+endif()
+
+if(TARGET asn1::cms::static)
+  asn1_add_fuzz_harness(fuzz_cms_open fuzz_cms_open.c)
+  target_link_libraries(fuzz_cms_open PRIVATE asn1::cms::static)
+else()
+  message(WARNING "fuzz_cms_open 需要 asn1::cms::static；跳过")
+endif()
+
 # asn1c 工具入口 harness（C++，链接 asn1c_lib 静态库）。
 if(TARGET asn1c_lib)
   add_executable(fuzz_asn1c fuzz_asn1c.cpp)

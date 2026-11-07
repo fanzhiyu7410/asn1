@@ -31,6 +31,9 @@ jobs:
           - roundtrip
           - schema_load
           - asn1c
+          - pkix_open
+          - pkcs_open
+          - cms_open
     steps:
       - uses: actions/checkout@v4
 

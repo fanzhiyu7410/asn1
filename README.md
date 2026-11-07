@@ -6,7 +6,7 @@
 
 对外只提供 C ABI，内部使用 C++ 实现；标准结构的 ASN.1 定义直接复用公开 RFC 模块，不自创描述格式。`asn1c` 与核心之间共享一份固定的描述表字节契约（`uint8_t[]`、显式小端读取），见[描述表格式](docs/11-描述表格式.md)。
 
-**当前状态：BER/DER 解码、DOM、值读取、schema 模板（运行时注册与描述表加载）、schema 感知解码/编码、`asn1_doc_validate`、`asn1_node_create_any` 公共构树入口（`ASN1_CAP_ANY_OPEN_TYPE` 已置位）、`asn1c` MVP（`.asn1` → 描述表 1.0 的 C 数组/二进制生成，含名称表）、`asn1-pkix` 模块（证书字段访问）、`asn1-cms` 模块（ContentInfo/SignedData 只读访问与 builder 结构构造）已实现；仍未实现：多模块 `IMPORTS`、参数化展开（二期）。** 上下文/内存模型、错误模型与 C ABI 已落地，测试覆盖 BER/DER 解码、编码往返、DOM、上下文/静态池、值读取、schema 与 ANY 节点语义、名称表读写与查询、`asn1c` 端到端生成与加载；**fuzz + 差分测试**已落地（7 个 libFuzzer harness + OpenSSL `asn1parse` 差分，本地构建/短跑/长跑已验证，CI 远端 run 42263533895 已通过）。**嵌入式**：静态池路径已在 Cortex-M4F 交叉构建（`.text` 11,548 / `.data` 1,348 / `.bss` 17,212）与 `qemu-arm` 运行中验证（无堆调用、池耗尽返回 `ASN1_E_STATIC_POOL_EXHAUSTED`），真实板卡未实测；尚不能作为完整可用库发布。
+**当前状态：BER/DER 解码、DOM、值读取、schema 模板（运行时注册与描述表加载）、schema 感知解码/编码、`asn1_doc_validate`、`asn1_node_create_any` 公共构树入口（`ASN1_CAP_ANY_OPEN_TYPE` 已置位）、`asn1c` MVP（`.asn1` → 描述表 1.0 的 C 数组/二进制生成，含名称表）、`asn1-pkix` 模块（证书字段访问）、`asn1-cms` 模块（ContentInfo/SignedData 只读访问与 builder 结构构造）已实现；仍未实现：多模块 `IMPORTS`、参数化展开（二期）。** 上下文/内存模型、错误模型与 C ABI 已落地，测试覆盖 BER/DER 解码、编码往返、DOM、上下文/静态池、值读取、schema 与 ANY 节点语义、名称表读写与查询、`asn1c` 端到端生成与加载；**fuzz + 差分测试**已落地（10 个 libFuzzer harness，含 PKIX/PKCS/CMS 模块级 open/accessor harness，+ OpenSSL `asn1parse` 差分，本地构建/短跑/长跑已验证，CI 远端 run 42263533895 已通过）。**嵌入式**：静态池路径已在 Cortex-M4F 交叉构建（`.text` 11,548 / `.data` 1,348 / `.bss` 17,212）与 `qemu-arm` 运行中验证（无堆调用、池耗尽返回 `ASN1_E_STATIC_POOL_EXHAUSTED`），真实板卡未实测；尚不能作为完整可用库发布。
 
 ## 分层
 
@@ -167,12 +167,12 @@ ANY 字段（如 `algorithmIdentifier.parameters`）只返回原始 TLV，模块
 
 | 验证项 | 结果 |
 | --- | --- |
-| Windows 本机 MinGW-W64 GCC 13.2.0（2026-11-07） | **本地实测**（2026-11-07 双配置复测）：共享与静态各 **27/27** 通过（含 `test_build_any`、`test_cms_builder`）；`test_asn1c_cli` 缺失输入退出码 3 |
+| Windows 本机 MinGW-W64 GCC 13.2.0（2026-11-07） | **本地实测**（2026-11-07 三配置复测）：`build-pkcs-final` / `build-mingw-Release-shared` / `build-mingw-Release-static` 各 **27/27** 通过（含 `test_build_any`、`test_cms_builder`）；`test_asn1c_cli` 缺失输入退出码 3；逐配置摘要见 [测试与验证](docs/07-测试与验证.md) 9.4 |
 | Windows 本机 MSVC 19.51 x64（2026-11-06 基线） | **本地实测**（当次用例集）：Release 共享/静态与 Debug 共享均通过；本轮新增 4 条用例后未复跑 |
 | WSL2 Ubuntu 26.04 + GCC 15.2.0（2026-11-06 基线） | **本地实测**（当次用例集）：共享/静态各一轮通过；本轮新增 4 条用例后未复跑 |
 | WSL2 Ubuntu 26.04 + Clang 21.1.8（2026-11-06 基线） | **本地实测**（当次用例集）：共享/静态各一轮通过；本轮新增 4 条用例后未复跑 |
 | ASan + UBSan（Clang 21.1.8，全量插桩）（2026-11-06 基线） | **本地实测**（当次用例集）：全部通过；本轮新增 4 条用例后未复跑 |
-| libFuzzer 短跑（7 harness，ASan+UBSan+LSan，各 60 s） | **本地实测**：无崩溃/泄漏/超时；迭代数见下表 |
+| libFuzzer 短跑（10 harness，ASan+UBSan+LSan，各 60 s） | **本地实测**：无崩溃/泄漏/超时；迭代数见下表 |
 | libFuzzer 长跑（`fuzz_schema_load`，900 s） | **本地实测**：54,361,459 次执行、无崩溃/泄漏/超时；`cov 356` 为 trace-pc-guard **边数**（补语料后检入语料短跑 `cov 559`、短 fuzz `cov 563`），非块/分支覆盖率 |
 | schema 加载行/分支覆盖率（llvm-cov，检入语料全量 + 30 s 短 fuzz） | **本地实测**：`asn1_schema_table.cpp` 行 95.06% / 分支 83.14%；详见 [测试与验证](docs/07-测试与验证.md) 9.1 |
 | schema 感知解码行/分支覆盖率（llvm-cov，检入语料全量 + 30 s 短 fuzz） | **本地实测**：`asn1_schema_decode.cpp` 行 90.66% / 分支 85.36% / 函数 100%，`cov 463`（trace-pc-guard 边数）；详见 [测试与验证](docs/07-测试与验证.md) 9.2 |
@@ -182,7 +182,7 @@ ANY 字段（如 `algorithmIdentifier.parameters`）只返回原始 TLV，模块
 | ARM Cortex-M4F 交叉（arm-none-eabi-gcc 14.2.1 + newlib，`ASN1_FREESTANDING=ON`） | **本地实测**：构建/链接通过（`libasn1_static.a` 121,036 字节）；**真实板卡未实测** |
 | 静态池嵌入式用例（ARM32 Linux + qemu-arm 10.2.1） | **本地实测**：返回 0；按 `asn1_ctx_size_for_config` 分配、池耗尽返回 `ASN1_E_STATIC_POOL_EXHAUSTED`、全程 0 次堆调用 |
 | macOS AppleClang（macos-13/14） | **未实测**（无 macOS 机器）；`.github/workflows/ci.yml` 已就绪 |
-| GitHub Actions 实际触发 | **未实测**（`origin` 已配置为 `https://github.com/fanzhiyu7410/asn1.git`；本轮推送后以实际 run 结果为准） |
+| GitHub Actions 实际触发 | **已通过**：run 42263533895（2026-11-07，六平台 25 个 job，attempt 2） |
 | fuzz-hardened 认证 | **不承诺**（未做专项抗恶意输入认证；ASan/UBSan/LSan 与 libFuzzer 短跑/长跑仅证明常规鲁棒性，不等于安全认证） |
 | 默认共享+静态配置与构建（含 3 个模块与 `asn1c`） | 通过 |
 | 启用示例、`ASN1_WARNINGS_AS_ERRORS=ON` 的配置与构建 | 通过 |
@@ -206,8 +206,11 @@ libFuzzer 短跑（各 60 s，`-max_len` 二进制 8192 / 文本 4096，ASan+UBS
 | `fuzz_roundtrip` | 1,000,010 | 16,393 | 718 | 0 |
 | `fuzz_schema_load` | 4,576,677 | 75,027 | 123 | 0 |
 | `fuzz_asn1c` | 40,518 | 664 | 1,013 | 0 |
+| `fuzz_pkix_open` | 3,107 | 50 | 38 | 0 |
+| `fuzz_pkcs_open` | 4,103 | 67 | 26 | 0 |
+| `fuzz_cms_open` | 2,089 | 34 | 28 | 0 |
 
-断言点静态计数 **1696 处**（宏调用点；循环体内实际执行次数更多）。`tests/` 静态库与共享库配置均注册 **27 个**无第三方依赖的 C 用例（以 `ctest -N` 为准），覆盖 `asn1-pkix` 证书打开与字段访问（RSA/RSA-PSS/EC 三张真实证书、ANY 三形态、句柄隔离、负例、安装后共享/静态独立消费）、BER 解码（含不定长）、DER 严格解码、DER 编码往返、DOM 值树、上下文/静态池、值读取、schema 运行时注册与描述表加载、名称表、schema 感知解码与约束求值、`asn1_doc_validate`、schema 感知编码、ANY/开放类型（含 EXPLICIT 包装）、buffer/reader 双路径解码、`asn1c` 端到端（PKIX 69 个具名类型 / 173 条记录 / 6 处 ANY 字段 / 31 条名称记录、CRC32C 自检、负例诊断 9001/9002/9003/9004/9006/9009、RSA/EC 证书 schema 往返）、`asn1-cms` ContentInfo/SignedData 只读访问与 builder 结构构造（5 份样本 decode→重建→编码逐字节一致）与嵌入式静态池最小用例。
+断言点静态计数 **1696 处**（宏调用点；循环体内实际执行次数更多）。`tests/` 静态库与共享库配置均注册 **27 个**无第三方依赖的 C 用例（以实际 `ctest` 运行摘要为准，见 [测试与验证](docs/07-测试与验证.md) 9.4），覆盖 `asn1-pkix` 证书打开与字段访问（RSA/RSA-PSS/EC 三张真实证书、ANY 三形态、句柄隔离、负例、安装后共享/静态独立消费）、BER 解码（含不定长）、DER 严格解码、DER 编码往返、DOM 值树、上下文/静态池、值读取、schema 运行时注册与描述表加载、名称表、schema 感知解码与约束求值、`asn1_doc_validate`、schema 感知编码、ANY/开放类型（含 EXPLICIT 包装）、buffer/reader 双路径解码、`asn1c` 端到端（PKIX 69 个具名类型 / 173 条记录 / 6 处 ANY 字段 / 31 条名称记录、CRC32C 自检、负例诊断 9001/9002/9003/9004/9006/9009、RSA/EC 证书 schema 往返）、`asn1-cms` ContentInfo/SignedData 只读访问与 builder 结构构造（5 份样本 decode→重建→编码逐字节一致）与嵌入式静态池最小用例。
 
 批量基准（`ASN1_BUILD_BENCHMARKS=OFF` 默认关闭，不进 CTest）：`asn1_pkix_certificate_open + close`，RSA 自签证书 865 字节。MSVC 19.51 x64 Release：1,000 次 918 ms（918 µs/次）、10,000 次 8,505 ms（850.5 µs/次），峰值堆 73,260 字节；WSL2 GCC 15.2.0 Release：1,000 次 368 ms、10,000 次 5,119 ms，峰值堆 73,284 字节。每次 open 加载一次 24 KB 描述表并构建上下文级 schema，生命周期到 close，无全局缓存；该数字仅用于评估是否需要核心 ctx 级 schema 缓存，本轮不改核心 ABI。
 

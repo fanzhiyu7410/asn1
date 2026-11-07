@@ -341,6 +341,56 @@ SCHEMA_DECODE_SYNTH = {
 }
 
 
+# 模块级 open harness：每个结构只放对应的真实样本，再派生截断/标签翻转/
+# 长度 +1 三类确定性变体。同一输入会被 harness 依次按多种结构尝试。
+MODULE_CORPORA = {
+    "pkix_open": [
+        "cert_rsa_selfsigned.der",
+        "cert_rsa_pss_selfsigned.der",
+        "cert_ec_selfsigned.der",
+    ],
+    "pkcs_open": [
+        "key_rsa_pkcs8.der",
+        "key_rsa_pss_pkcs8.der",
+        "key_ec_pkcs8.der",
+        "key_rsa_pkcs8_encrypted.der",
+        "key_rsa_pkcs1_private.der",
+        "key_rsa_pkcs1_public.der",
+        "csr_rsa.der",
+        "csr_ec.der",
+    ],
+    "cms_open": [
+        "cms_rsa_attached.der",
+        "cms_rsa_detached.der",
+        "cms_rsa_minimal.der",
+        "cms_rsa_ec_multicert.der",
+        "cms_rsa_keyid.der",
+    ],
+}
+
+
+def _module_variants(name, data):
+    """真实样本 + 截断 + 首字节标签翻转 + 长度字段 +1。"""
+    stem = name[:-4] if name.endswith(".der") else name
+    yield stem, data
+
+    if len(data) > 1:
+        yield stem + "_trunc_half", data[: len(data) // 2]
+
+    if data:
+        flipped = bytearray(data)
+        flipped[0] ^= 0x20
+        yield stem + "_tagflip", bytes(flipped)
+
+    if len(data) >= 2:
+        bumped = bytearray(data)
+        if bumped[1] < 0x80:
+            bumped[1] += 1
+        elif bumped[1] != 0x80 and len(bumped) >= 3:
+            bumped[2] += 1
+        yield stem + "_lenplus1", bytes(bumped)
+
+
 ASN1C_DIR = os.path.join(DATA, "asn1c")
 ASN1C_SEEDS = ["equiv_sample.asn1"] + [
     os.path.join("negative", f)
@@ -384,6 +434,17 @@ def main():
     hdir = os.path.join(CORPUS, "schema_decode")
     for name, data in SCHEMA_DECODE_SYNTH.items():
         write_bytes(os.path.join(hdir, name), data)
+
+    # 1.2) 模块级 open harness：对应真实样本 + 确定性变体 + 空输入。
+    for harness, names in MODULE_CORPORA.items():
+        hdir = os.path.join(CORPUS, harness)
+        for name in names:
+            src = os.path.join(DATA, name)
+            data = open(src, "rb").read()
+            for seed_name, payload in _module_variants(name, data):
+                write_bytes(os.path.join(hdir, seed_name), payload)
+        write_bytes(os.path.join(hdir, "empty"), b"")
+        write_bytes(os.path.join(hdir, "tag_only"), b"\x30")
 
     # 2) schema_load：真实 PKIX/PKCS/CMS 表字节（最大攻击面）+ 空/垃圾。
     hdir = os.path.join(CORPUS, "schema_load")

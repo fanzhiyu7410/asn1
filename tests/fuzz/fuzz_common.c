@@ -44,6 +44,10 @@ void fuzz_walk(const asn1_node_t *node)
         for (i = 0; i < count; ++i) {
             fuzz_walk(asn1_node_child_at(node, i));
         }
+        /* 下标边界：首个、越界一个、SIZE_MAX。返回值只用于遍历，不施加断言。 */
+        (void)asn1_node_child_at(node, 0);
+        (void)asn1_node_child_at(node, count);
+        (void)asn1_node_child_at(node, SIZE_MAX);
     }
 }
 
