@@ -965,6 +965,75 @@ int main(void)
     }
 
     {
+        /* SET 字段使用 context 标签：编码按完整 TLV（标签优先）排序，
+         * 与 schema 字段声明顺序无关。 */
+        asn1_schema_t *schema = NULL;
+        ASN1_TEST_CHECK(asn1_schema_create(ctx, ASN1_TAG_MODE_DEFAULT,
+                                           &schema) == ASN1_OK);
+        uint32_t tag2Id = 0;
+        uint32_t tag0Id = 0;
+        uint32_t setId = 0;
+        asn1_type_desc_t tag2Type =
+            make_type("CtxTag2", ASN1_TYPE_KIND_SIMPLE, ASN1_TAG_CONTEXT, 2,
+                      ASN1_TAG_MODE_IMPLICIT, 0);
+        ASN1_TEST_CHECK(asn1_schema_add_type(schema, &tag2Type, &tag2Id) ==
+                        ASN1_OK);
+        asn1_type_desc_t tag0Type =
+            make_type("CtxTag0", ASN1_TYPE_KIND_SIMPLE, ASN1_TAG_CONTEXT, 0,
+                      ASN1_TAG_MODE_IMPLICIT, 0);
+        ASN1_TEST_CHECK(asn1_schema_add_type(schema, &tag0Type, &tag0Id) ==
+                        ASN1_OK);
+        asn1_type_desc_t setType =
+            make_type("CtxBag", ASN1_TYPE_KIND_SET, ASN1_TAG_UNIVERSAL, 17,
+                      ASN1_TAG_MODE_DEFAULT, 0);
+        ASN1_TEST_CHECK(asn1_schema_add_type(schema, &setType, &setId) ==
+                        ASN1_OK);
+        /* 声明顺序故意与标签顺序相反，迫使编码器实际排序。 */
+        asn1_field_desc_t tag2Field = make_field("late", tag2Id, 0);
+        asn1_field_desc_t tag0Field = make_field("early", tag0Id, 0);
+        ASN1_TEST_CHECK(asn1_schema_add_field(schema, setId, &tag2Field) ==
+                        ASN1_OK);
+        ASN1_TEST_CHECK(asn1_schema_add_field(schema, setId, &tag0Field) ==
+                        ASN1_OK);
+        ASN1_TEST_CHECK(asn1_schema_set_root(schema, setId) == ASN1_OK);
+        ASN1_TEST_CHECK(asn1_schema_seal(schema) == ASN1_OK);
+
+        static const uint8_t kIn[8] = {0x31, 0x06, 0x82, 0x01, 0x06,
+                                       0x80, 0x01, 0x05};
+        static const uint8_t kSorted[8] = {0x31, 0x06, 0x80, 0x01, 0x05,
+                                           0x82, 0x01, 0x06};
+        asn1_doc_t *doc = NULL;
+        ASN1_TEST_CHECK(decode_schema(ctx, schema, kIn, sizeof(kIn), 0,
+                                      &doc) == ASN1_OK);
+        uint8_t schemaOut[16];
+        uint8_t genericOut[16];
+        size_t schemaSize = 0;
+        size_t genericSize = 0;
+        ASN1_TEST_CHECK(encode_both(ctx, schema, doc, schemaOut,
+                                    sizeof(schemaOut), &schemaSize, genericOut,
+                                    sizeof(genericOut), &genericSize) ==
+                        ASN1_OK);
+        ASN1_TEST_CHECK(bytes_equal(schemaOut, schemaSize, kSorted,
+                                    sizeof(kSorted)));
+        ASN1_TEST_CHECK(bytes_equal(genericOut, genericSize, kSorted,
+                                    sizeof(kSorted)));
+        asn1_doc_destroy(doc);
+
+        ASN1_TEST_CHECK(decode_schema(ctx, schema, kSorted, sizeof(kSorted), 0,
+                                      &doc) == ASN1_OK);
+        ASN1_TEST_CHECK(encode_both(ctx, schema, doc, schemaOut,
+                                    sizeof(schemaOut), &schemaSize, genericOut,
+                                    sizeof(genericOut), &genericSize) ==
+                        ASN1_OK);
+        ASN1_TEST_CHECK(bytes_equal(schemaOut, schemaSize, kSorted,
+                                    sizeof(kSorted)));
+        ASN1_TEST_CHECK(bytes_equal(genericOut, genericSize, kSorted,
+                                    sizeof(kSorted)));
+        asn1_doc_destroy(doc);
+        asn1_schema_destroy(schema);
+    }
+
+    {
         /* SET OF INTEGER：编码按元素完整 TLV 排序。 */
         asn1_schema_t *schema = NULL;
         ASN1_TEST_CHECK(asn1_schema_create(ctx, ASN1_TAG_MODE_DEFAULT,
@@ -985,9 +1054,9 @@ int main(void)
         ASN1_TEST_CHECK(asn1_schema_seal(schema) == ASN1_OK);
 
         static const uint8_t kIn[8] = {0x31, 0x06, 0x02, 0x01,
-                                       0x05, 0x02, 0x01, 0x03};
+                                       0x06, 0x02, 0x01, 0x05};
         static const uint8_t kSorted[8] = {0x31, 0x06, 0x02, 0x01,
-                                           0x03, 0x02, 0x01, 0x05};
+                                           0x05, 0x02, 0x01, 0x06};
         asn1_doc_t *doc = NULL;
         ASN1_TEST_CHECK(decode_schema(ctx, schema, kIn, sizeof(kIn), 0,
                                       &doc) == ASN1_OK);
@@ -995,6 +1064,19 @@ int main(void)
         uint8_t genericOut[16];
         size_t schemaSize = 0;
         size_t genericSize = 0;
+        ASN1_TEST_CHECK(encode_both(ctx, schema, doc, schemaOut,
+                                    sizeof(schemaOut), &schemaSize, genericOut,
+                                    sizeof(genericOut), &genericSize) ==
+                        ASN1_OK);
+        ASN1_TEST_CHECK(bytes_equal(schemaOut, schemaSize, kSorted,
+                                    sizeof(kSorted)));
+        ASN1_TEST_CHECK(bytes_equal(genericOut, genericSize, kSorted,
+                                    sizeof(kSorted)));
+        asn1_doc_destroy(doc);
+
+        /* 已排序输入重新解码再编码：结果保持不变（排序幂等）。 */
+        ASN1_TEST_CHECK(decode_schema(ctx, schema, kSorted, sizeof(kSorted), 0,
+                                      &doc) == ASN1_OK);
         ASN1_TEST_CHECK(encode_both(ctx, schema, doc, schemaOut,
                                     sizeof(schemaOut), &schemaSize, genericOut,
                                     sizeof(genericOut), &genericSize) ==
@@ -1613,7 +1695,8 @@ int main(void)
     }
 
     {
-        /* IMPLICIT 覆盖的 SET OF：编码按 DER 排序并稳定在类型自身 context 标签。 */
+        /* IMPLICIT 覆盖的 SET OF：[16] 反向输入经 schema 编码按 DER 排序，
+         * 并稳定在类型自身 context 标签。 */
         asn1_schema_t *schema = NULL;
         ASN1_TEST_CHECK(asn1_schema_create(ctx, ASN1_TAG_MODE_DEFAULT,
                                            &schema) == ASN1_OK);
@@ -1632,11 +1715,14 @@ int main(void)
         ASN1_TEST_CHECK(asn1_schema_set_root(schema, ofId) == ASN1_OK);
         ASN1_TEST_CHECK(asn1_schema_seal(schema) == ASN1_OK);
 
-        static const uint8_t kImplSetOf[8] = {0xB0, 0x06, 0x02, 0x01, 0x05,
-                                              0x02, 0x01, 0x06};
+        static const uint8_t kImplSetOfIn[8] = {0xB0, 0x06, 0x02, 0x01, 0x06,
+                                                0x02, 0x01, 0x05};
+        static const uint8_t kImplSetOfSorted[8] = {0xB0, 0x06, 0x02, 0x01,
+                                                    0x05, 0x02, 0x01, 0x06};
         asn1_doc_t *doc = NULL;
-        ASN1_TEST_CHECK(decode_schema(ctx, schema, kImplSetOf,
-                                      sizeof(kImplSetOf), 0, &doc) == ASN1_OK);
+        ASN1_TEST_CHECK(decode_schema(ctx, schema, kImplSetOfIn,
+                                      sizeof(kImplSetOfIn), 0, &doc) ==
+                        ASN1_OK);
         asn1_encode_options_t options;
         asn1_encode_options_init(&options);
         options.schema = schema;
@@ -1644,8 +1730,8 @@ int main(void)
         memset(&buf, 0, sizeof(buf));
         ASN1_TEST_CHECK(asn1_encode_buffer(ctx, doc, &options, &buf) ==
                         ASN1_OK);
-        ASN1_TEST_CHECK(bytes_equal(buf.data, buf.size, kImplSetOf,
-                                    sizeof(kImplSetOf)));
+        ASN1_TEST_CHECK(bytes_equal(buf.data, buf.size, kImplSetOfSorted,
+                                    sizeof(kImplSetOfSorted)));
         asn1_doc_destroy(doc);
 
         ASN1_TEST_CHECK(decode_schema(ctx, schema, buf.data, buf.size, 0,

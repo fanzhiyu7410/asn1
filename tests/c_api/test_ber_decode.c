@@ -111,6 +111,21 @@ int main(void)
     ASN1_TEST_CHECK(asn1_node_tag_number(asn1_doc_root(doc)) == 40);
     asn1_doc_destroy(doc);
 
+    /* 5 字节 base-128 tag number 溢出 uint32_t：在首个越界继续字节处报错。
+     * 0x9F 后的第 5 个继续字节（下标 5）使 value 超过 UINT32_MAX。 */
+    static const uint8_t overflow_tag[] = {0x9F, 0x90, 0x80,
+                                           0x80, 0x80, 0x80};
+    doc = NULL;
+    ASN1_TEST_CHECK(asn1_decode_buffer(ctx, overflow_tag, sizeof(overflow_tag),
+                                       NULL, &doc, &consumed) ==
+                    ASN1_E_MALFORMED_TAG);
+    ASN1_TEST_CHECK(doc == NULL);
+    info.struct_size = sizeof(info);
+    ASN1_TEST_CHECK(asn1_ctx_get_error(ctx, &info) == ASN1_OK);
+    ASN1_TEST_CHECK(info.code == ASN1_E_MALFORMED_TAG);
+    ASN1_TEST_CHECK(info.offset == 5);
+    asn1_ctx_clear_error(ctx);
+
     /* BER 不定长：单层、嵌套、TLV 含 EOC。 */
     static const uint8_t indefinite[] = {0x30, 0x80, 0x02, 0x01,
                                          0x05, 0x00, 0x00};
