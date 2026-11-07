@@ -7,7 +7,7 @@ cmake_minimum_required(VERSION 3.20)
 
 project(
   asn1-pkcs
-  VERSION 0.1.1
+  VERSION 0.1.2
   DESCRIPTION "PKCS 系列标准结构模块（RFC 8017/5208/2986/7292，只读）"
   LANGUAGES C CXX
 )

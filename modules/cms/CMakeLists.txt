@@ -7,7 +7,7 @@ cmake_minimum_required(VERSION 3.20)
 
 project(
   asn1-cms
-  VERSION 0.1.1
+  VERSION 0.1.2
   DESCRIPTION "CMS/PKCS#7 标准结构模块（RFC 5652，只读）"
   LANGUAGES C CXX
 )

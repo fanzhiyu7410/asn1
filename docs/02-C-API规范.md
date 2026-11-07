@@ -950,8 +950,8 @@ struct asn1_buf {
 /* 由 CMake 从 project(asn1 VERSION ...) 生成到构建目录，源码树中不手写。 */
 #define ASN1_VERSION_MAJOR 0
 #define ASN1_VERSION_MINOR 1
-#define ASN1_VERSION_PATCH 1
-#define ASN1_VERSION_STRING "0.1.1"
+#define ASN1_VERSION_PATCH 2
+#define ASN1_VERSION_STRING "0.1.2"
 
 /* 编码规则：major << 16 | minor << 8 | patch */
 #define ASN1_VERSION_ENCODED \

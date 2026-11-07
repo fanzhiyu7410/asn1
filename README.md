@@ -6,7 +6,7 @@
 
 对外只提供 C ABI，内部使用 C++ 实现；标准结构的 ASN.1 定义直接复用公开 RFC 模块，不自创描述格式。`asn1c` 与核心之间共享一份固定的描述表字节契约（`uint8_t[]`、显式小端读取），见[描述表格式](docs/11-描述表格式.md)。
 
-**当前状态：BER/DER 解码、DOM、值读取、schema 模板（运行时注册与描述表加载）、schema 感知解码/编码、`asn1_doc_validate`、`asn1_node_create_any` 公共构树入口（`ASN1_CAP_ANY_OPEN_TYPE` 已置位）、`asn1c` MVP（`.asn1` → 描述表 1.0 的 C 数组/二进制生成，含名称表）、`asn1-pkix` 模块（证书字段访问）、`asn1-pkcs` 模块（PKCS#1/#8/#10/#12 只读结构访问）、`asn1-cms` 模块（ContentInfo/SignedData 只读访问与 builder 结构构造）已实现；仍未实现：多模块 `IMPORTS`、参数化展开（二期）。** 上下文/内存模型、错误模型与 C ABI 已落地，测试覆盖 BER/DER 解码、编码往返、DOM、上下文/静态池、值读取、schema 与 ANY 节点语义、名称表读写与查询、`asn1c` 端到端生成与加载；**fuzz + 差分测试**已落地（10 个 libFuzzer harness，含 PKIX/PKCS/CMS 模块级 open/accessor harness，+ OpenSSL `asn1parse` 差分，本地构建/短跑/长跑已验证，0.1.0 发布轮 CI run 42362375253 六平台 25/25、34 条用例通过）。**嵌入式**：静态池路径已在 Cortex-M4F 交叉构建（`.text` 11,548 / `.data` 1,348 / `.bss` 17,212）与 `qemu-arm` 运行中验证（无堆调用、池耗尽返回 `ASN1_E_STATIC_POOL_EXHAUSTED`），真实板卡未实测。**发布状态**：`v0.1.0` 已于 2026-11-07 发布（[Release](https://github.com/fanzhiyu7410/asn1/releases/tag/v0.1.0)）。0.1.0 为结构层只读/构造版本，不做密码学语义（不验签、不摘要、不解密、不校验证书链），也不构成生产级认证。
+**当前状态：BER/DER 解码、DOM、值读取、schema 模板（运行时注册与描述表加载）、schema 感知解码/编码、`asn1_doc_validate`、`asn1_node_create_any` 公共构树入口（`ASN1_CAP_ANY_OPEN_TYPE` 已置位）、`asn1c` MVP（`.asn1` → 描述表 1.0 的 C 数组/二进制生成，含名称表）、`asn1-pkix` 模块（证书字段访问）、`asn1-pkcs` 模块（PKCS#1/#8/#10/#12 只读结构访问）、`asn1-cms` 模块（ContentInfo/SignedData 只读访问与 builder 结构构造）已实现；仍未实现：多模块 `IMPORTS`、参数化展开（二期）。** 上下文/内存模型、错误模型与 C ABI 已落地，测试覆盖 BER/DER 解码、编码往返、DOM、上下文/静态池、值读取、schema 与 ANY 节点语义、名称表读写与查询、`asn1c` 端到端生成与加载；**fuzz + 差分测试**已落地（10 个 libFuzzer harness，含 PKIX/PKCS/CMS 模块级 open/accessor harness，+ OpenSSL `asn1parse` 差分，本地构建/短跑/长跑已验证，0.1.1 tag commit CI run 42377612726 六平台 25/25、34 条用例通过）。**嵌入式**：静态池路径已在 Cortex-M4F 交叉构建（`.text` 11,548 / `.data` 1,348 / `.bss` 17,212）与 `qemu-arm` 运行中验证（无堆调用、池耗尽返回 `ASN1_E_STATIC_POOL_EXHAUSTED`），真实板卡未实测。**发布状态**：`v0.1.0` 与 `v0.1.1` 均已于 2026-11-07 发布（[v0.1.0](https://github.com/fanzhiyu7410/asn1/releases/tag/v0.1.0)、[v0.1.1](https://github.com/fanzhiyu7410/asn1/releases/tag/v0.1.1)）。0.1.x 为结构层只读/构造版本，不做密码学语义（不验签、不摘要、不解密、不校验证书链），也不构成生产级认证。
 
 ## 分层
 
@@ -165,7 +165,7 @@ ANY 字段（如 `algorithmIdentifier.parameters`）只返回原始 TLV，模块
 
 只列实测事实；“未实测”不代表不支持。三档含义：**本地实测**（写明平台/工具链/日期）、**未实测**、**不承诺**。用例数与能力位不手写：用例数由 `python scripts/report_status.py --build-dir <构建目录>`（内部执行 `ctest -N`）派生，能力位取自构建目录生成的 `asn1_version.h` 中 `ASN1_CAP_*`，运行时实际置位由 `test_version_abi` 在 ctest 中断言。下表数字为本轮构建的派生结果；未在本轮用例集下复跑的平台按当次基线注明，不把历史通过数当成本轮结论。
 
-**0.1.1 卫生批证据**：`ci` run 42369322651（六平台 25/25 job、34 条用例）、`sanitizers` run 42369322610、`fuzz` run 42369322608、`differential` run 42369322643，全部成功。0.1.0 发布轮与更早 run 为历史记录（其中 0.1.0 之前轮次为 28 条用例），不作本轮结论。
+**0.1.1 发布证据**：`ci` run 42377612726（tag commit，六平台 25/25 job、34 条用例）、`sanitizers` run 42377612727、`fuzz` run 42377612742、`differential` run 42377612618，全部成功。更早的 run 为历史记录，不作本轮结论。
 
 | 验证项 | 结果 |
 | --- | --- |
@@ -186,8 +186,8 @@ ANY 字段（如 `algorithmIdentifier.parameters`）只返回原始 TLV，模块
 | 嵌入式（PKCS / CMS 模块最小静态池） | **本地实测**（宿主 MinGW Release 共享，`ctx` 固定开销 448 字节）：PKCS **11,648 字节**（池耗尽点 6,048）、CMS **53,536 字节**（池耗尽点 26,992）；池耗尽返回 `ASN1_E_STATIC_POOL_EXHAUSTED`，不崩溃；见 [构建与移植](docs/06-构建与移植.md) 6.4 |
 | ARM Cortex-M4F 交叉（arm-none-eabi-gcc 14.2.1 + newlib，`ASN1_FREESTANDING=ON`） | **本地实测**：构建/链接通过（`libasn1_static.a` 121,036 字节）；**真实板卡未实测** |
 | 静态池嵌入式用例（ARM32 Linux + qemu-arm 10.2.1） | **本地实测**：返回 0；按 `asn1_ctx_size_for_config` 分配、池耗尽返回 `ASN1_E_STATIC_POOL_EXHAUSTED`、全程 0 次堆调用 |
-| macOS AppleClang（macos-15-intel/macos-15） | **CI 实测**：0.1.0 发布轮 run 42362375253 六平台 25 个 job 全部通过（34 条用例）；本地无 macOS 机器。旧号 run 42340940579 为 0.1.0 之前的历史记录（当次 28 条用例） |
-| GitHub Actions 实际触发 | **已通过**：0.1.0 发布轮 ci run 42362375253（25/25）、sanitizers 42362375225、fuzz 42362375271、differential 42362375277 全部成功；旧号 42340940579 / 42263533895 为 0.1.0 之前的历史记录（当次 28 条 / 27 条用例） |
+| macOS AppleClang（macos-15-intel/macos-15） | **CI 实测**：0.1.1 tag commit run 42377612726 六平台 25 个 job 全部通过（34 条用例）；本地无 macOS 机器。旧号 run 42340940579 为 0.1.0 之前的历史记录（当次 28 条用例） |
+| GitHub Actions 实际触发 | **已通过**：0.1.1 tag commit ci run 42377612726（25/25）、sanitizers 42377612727、fuzz 42377612742、differential 42377612618 全部成功；旧号 42340940579 / 42263533895 为 0.1.0 之前的历史记录（当次 28 条 / 27 条用例） |
 | fuzz-hardened 认证 | **不承诺**（未做专项抗恶意输入认证；ASan/UBSan/LSan 与 libFuzzer 短跑/长跑仅证明常规鲁棒性，不等于安全认证） |
 | 默认共享+静态配置与构建（含 3 个模块与 `asn1c`） | 通过 |
 | 启用示例、`ASN1_WARNINGS_AS_ERRORS=ON` 的配置与构建 | 通过 |

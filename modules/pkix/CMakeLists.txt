@@ -7,7 +7,7 @@ cmake_minimum_required(VERSION 3.20)
 
 project(
   asn1-pkix
-  VERSION 0.1.1
+  VERSION 0.1.2
   DESCRIPTION "X.509/PKIX 标准结构模块（RFC 5912）"
   LANGUAGES C CXX
 )
