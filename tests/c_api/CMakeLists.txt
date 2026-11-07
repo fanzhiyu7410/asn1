@@ -7,6 +7,9 @@ target_link_libraries(test_version_abi PRIVATE asn1_test_support)
 asn1_add_test(test_ber_decode test_ber_decode.c)
 target_link_libraries(test_ber_decode PRIVATE asn1_test_support)
 
+asn1_add_test(test_struct_size test_struct_size.c)
+target_link_libraries(test_struct_size PRIVATE asn1_test_support)
+
 asn1_add_test(test_value_read test_value_read.c)
 target_link_libraries(test_value_read PRIVATE asn1_test_support)
 

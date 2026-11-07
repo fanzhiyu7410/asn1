@@ -88,6 +88,7 @@ jobs:
             mingw-w64-ucrt-x86_64-gcc
             mingw-w64-ucrt-x86_64-cmake
             mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-python
           path-type: inherit
 
       - name: 配置（Linux/macOS）
@@ -201,6 +202,23 @@ jobs:
             grep -E 'warning[: ]' build.log | head -n 20 | sed 's/%/%25/g' > diag.warn.txt || true
             while IFS= read -r line; do echo "::warning::$line"; done < diag.warn.txt
           fi
+
+      # ABI 守卫只在共享库产物上运行：静态库的符号集合由链接器按需裁剪，
+      # 不能作为导出契约。共享库的符号集合必须与 abi/*.symbols.txt 完全一致。
+      - name: ABI 导出符号（Linux/macOS）
+        if: matrix.link_mode == 'shared' && matrix.platform != 'windows-msvc' && matrix.platform != 'windows-mingw'
+        shell: bash
+        run: python3 scripts/check_exports.py --build-dir build
+
+      - name: ABI 导出符号（MinGW）
+        if: matrix.link_mode == 'shared' && matrix.platform == 'windows-mingw'
+        shell: msys2 {0}
+        run: python scripts/check_exports.py --build-dir build
+
+      - name: ABI 导出符号（MSVC）
+        if: matrix.link_mode == 'shared' && matrix.platform == 'windows-msvc'
+        shell: bash
+        run: python scripts/check_exports.py --build-dir build
 
       - name: 测试（Linux/macOS）
         if: matrix.platform != 'windows-msvc' && matrix.platform != 'windows-mingw'

@@ -1,0 +1,12 @@
+# 共享库导出符号基线；变更需评审，见 scripts/check_exports.py。
+asn1_pkix_certificate_close
+asn1_pkix_certificate_find
+asn1_pkix_certificate_issuer_der
+asn1_pkix_certificate_open
+asn1_pkix_certificate_serial_number
+asn1_pkix_certificate_signature_algorithm_oid
+asn1_pkix_certificate_signature_value
+asn1_pkix_certificate_subject_der
+asn1_pkix_certificate_validity
+asn1_pkix_certificate_version
+asn1_pkix_version_string

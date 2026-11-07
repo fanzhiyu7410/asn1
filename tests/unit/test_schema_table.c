@@ -623,13 +623,39 @@ int main(void)
     refresh_checksum(work);
     ASN1_TEST_CHECK(expect_load_error(ctx, work, TABLE_SIZE,
                                       ASN1_E_SCHEMA_FORMAT));
+
+    /* format_version 矩阵：major 0/2、minor 1、描述符与头部不一致均拒绝。 */
+    memcpy(work, base, TABLE_SIZE);
+    put_u32(work, 8, 0x00000000u);
+    refresh_checksum(work);
+    ASN1_TEST_CHECK(expect_load_error(ctx, work, TABLE_SIZE,
+                                      ASN1_E_SCHEMA_FORMAT));
+    memcpy(work, base, TABLE_SIZE);
+    put_u32(work, 8, 0x00010001u);
+    refresh_checksum(work);
+    ASN1_TEST_CHECK(expect_load_error(ctx, work, TABLE_SIZE,
+                                      ASN1_E_SCHEMA_FORMAT));
+    {
+        asn1_schema_table_t bad = make_table(base, TABLE_SIZE);
+        asn1_schema_t *schema = NULL;
+        bad.format_version = 0;
+        ASN1_TEST_CHECK(asn1_schema_load(ctx, &bad, &schema) ==
+                        ASN1_E_SCHEMA_FORMAT);
+        ASN1_TEST_CHECK(schema == NULL);
+        bad = make_table(base, TABLE_SIZE);
+        bad.format_version = 0x00010001u;
+        ASN1_TEST_CHECK(asn1_schema_load(ctx, &bad, &schema) ==
+                        ASN1_E_SCHEMA_FORMAT);
+        ASN1_TEST_CHECK(schema == NULL);
+    }
+
     memcpy(work, base, TABLE_SIZE);
     put_u32(work, 12, 95);
     refresh_checksum(work);
     ASN1_TEST_CHECK(expect_load_error(ctx, work, TABLE_SIZE,
                                       ASN1_E_SCHEMA_FORMAT));
 
-    /* header_size 扩展：>96 的未知尾部忽略，表区间以 header_size 起算。 */
+    /* header_size 扩展：96/100/104 均可加载；108 基线见 test_schema_names。 */
     memcpy(work, base, TABLE_SIZE);
     put_u32(work, 12, 104);
     refresh_checksum(work);
