@@ -39,4 +39,34 @@ if(NOT CMAKE_CROSSCOMPILING)
     target_link_libraries(test_pkix_pool PRIVATE asn1::shared)
   endif()
   add_test(NAME test_pkix_pool COMMAND test_pkix_pool)
+
+  # 宿主测量：静态池 + 模块真实 open 的最小池，并验证池耗尽错误码。
+  foreach(_module IN ITEMS pkcs cms)
+    if(TARGET asn1::${_module}::static OR TARGET asn1::${_module}::shared)
+      add_executable(test_${_module}_pool test_${_module}_pool.c)
+      set_target_properties(test_${_module}_pool PROPERTIES C_STANDARD 99
+                                                            C_STANDARD_REQUIRED ON)
+      target_include_directories(
+        test_${_module}_pool PRIVATE
+          ${PROJECT_SOURCE_DIR}/tests/data
+      )
+      if(TARGET asn1::${_module}::static)
+        target_link_libraries(test_${_module}_pool PRIVATE
+                              asn1::${_module}::static)
+      else()
+        target_link_libraries(test_${_module}_pool PRIVATE
+                              asn1::${_module}::shared)
+        if(WIN32)
+          add_custom_command(
+            TARGET test_${_module}_pool POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+              $<TARGET_FILE:asn1::${_module}::shared>
+              $<TARGET_FILE:asn1::shared>
+              $<TARGET_FILE_DIR:test_${_module}_pool>
+          )
+        endif()
+      endif()
+      add_test(NAME test_${_module}_pool COMMAND test_${_module}_pool)
+    endif()
+  endforeach()
 endif()

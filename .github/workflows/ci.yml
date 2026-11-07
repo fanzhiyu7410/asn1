@@ -256,7 +256,10 @@ jobs:
             -DASN1_BUILD_SHARED=OFF \
             -DASN1_BUILD_STATIC=ON \
             -DASN1_FREESTANDING=ON \
-            -DASN1_BUILD_MODULES=OFF \
+            -DASN1_BUILD_MODULES=ON \
+            -DASN1_BUILD_MODULE_PKIX=ON \
+            -DASN1_BUILD_MODULE_PKCS=ON \
+            -DASN1_BUILD_MODULE_CMS=ON \
             -DASN1_BUILD_TOOLS=OFF \
             -DASN1_BUILD_EMBEDDED_TEST=ON \
             -DASN1_WARNINGS_AS_ERRORS=ON
@@ -268,3 +271,4 @@ jobs:
         run: |
           arm-none-eabi-size build-arm/tests/embedded/test_embedded_pool
           ls -l build-arm/src/libasn1_static.a
+          ls -l build-arm/modules/*/libasn1-*_static.a
