@@ -782,13 +782,14 @@ asn1_err_t asn1_pkix_certificate_validity(
 
 ### 6.9 asn1-pkcs 模块 API
 
-`asn1-pkcs` 是独立包（`find_package(asn1-pkcs CONFIG)`），只依赖核心公共 C ABI。公共头为 `<asn1/pkcs/pkcs.h>`，导出宏 `ASN1_PKCS_API`，静态链接时宏 `ASN1_PKCS_STATIC`。5 个不透明句柄各由 `open` 创建、`close` 销毁（`close(NULL)` 为空操作）：`PrivateKeyInfo`、`EncryptedPrivateKeyInfo`、`RSAPublicKey`、`RSAPrivateKey`、`CertificationRequest`。
+`asn1-pkcs` 是独立包（`find_package(asn1-pkcs CONFIG)`），只依赖核心公共 C ABI。公共头为 `<asn1/pkcs/pkcs.h>`，导出宏 `ASN1_PKCS_API`，静态链接时宏 `ASN1_PKCS_STATIC`。9 个不透明句柄各由 `open` 创建、`close` 销毁（`close(NULL)` 为空操作）：`PrivateKeyInfo`、`EncryptedPrivateKeyInfo`、`RSAPublicKey`、`RSAPrivateKey`、`CertificationRequest`，以及 PKCS#12 的 `PFX`、`AuthenticatedSafe`、`SafeContents`、`CertBag`。
 
 语义：
 
 - `open` 用模块随包发布的描述表加载 schema，再以 `ASN1_ENCODING_DER` + `ASN1_DECODE_COPY_INPUT` 解码；输入被复制进文档，调用方可在返回后释放。空参 `ASN1_E_INVALID_ARG`，分配失败 `ASN1_E_NOMEM`，截断/尾随/语法错误/结构不符由核心错误码直接返回。
 - 句柄借用调用方的 `asn1_ctx_t`，ctx 必须比句柄存活更久；访问器返回的指针（OID 文本、大整数十进制文本、字节/TLV、节点）借用句柄，`close` 后失效。
-- 只读边界：PKCS#8 不解密，PKCS#1 不做 RSA 运算/填充/签名/加密，PKCS#10 不验证签名；`AlgorithmIdentifier.parameters` 与 `Attribute.values` 只返回完整原始 TLV，缺省时返回 `ASN1_OK` 且 `NULL/0`。
+- 只读边界：PKCS#8 不解密，PKCS#1 不做 RSA 运算/填充/签名/加密，PKCS#10 不验证签名，PKCS#12 不解密 `EncryptedData`/`pkcs8ShroudedKeyBag`、不做口令派生、不计算也不校验 MAC；`AlgorithmIdentifier.parameters`、`Attribute.values`、`ContentInfo.content`、`SafeBag.bagValue`、`CertBag.certValue` 只返回完整原始 TLV（或 `SET OF ANY` 节点），可选字段缺省时返回 `ASN1_OK` 且 `NULL/0`。
+- PKCS#12 的 `MacData.iterations` 省略时按 `DEFAULT 1` 返回 `1`；`macData` 整体缺省时 MAC 访问器返回 `ASN1_E_SCHEMA_FIELD`。`CertBag.certificate` 仅在 `certId` 为 `x509Certificate` 时返回证书 DER，SDSI 等分支返回 `ASN1_E_UNSUPPORTED`。展平表不强制 `bagId`/`certId` 的取值，只校验其为 `OBJECT IDENTIFIER`。
 - `asn1_pkcs_certification_request_version` 对 RFC 2986 的 `version` 采取**返回成功、原样给值**：非 0 是合法 DER 输入，不做范围校验，不静默改写为 0，不发告警、不新增错误码；需要断言 v1 的调用方自行比较 `*out_version == 0`。
 - 模块不新增错误码，全部复用核心 1000–8999 错误空间；模块无全局可变状态，同一 ctx 的并发使用需调用方加锁。
 - 描述表发布机制：`modules/pkcs/generated/` 检入 `.bin` + 描述头，默认构建不依赖 `asn1c`；`-DASN1_PKCS_REGENERATE_TABLE=ON` 在构建期重新生成并与检入产物逐字节比对，差异即失败。

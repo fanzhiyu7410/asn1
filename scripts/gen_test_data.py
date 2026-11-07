@@ -11,6 +11,7 @@
     python scripts/gen_test_data.py --derived  # 只从已有 key_rsa_pkcs8.pem 派生
                                                # PKCS#1 公私钥与加密 PKCS#8 材料
     python scripts/gen_test_data.py --cms      # 只用已有证书/私钥生成 CMS 样本
+    python scripts/gen_test_data.py --pkcs12   # 只用已有证书/私钥生成 PKCS#12 样本
 
 产物：
     tests/data/*.pem  PEM 文本材料（自签名证书、私钥、CSR）
@@ -170,6 +171,34 @@ CMS_SAMPLES = [
 
 CMS_CONTENT = b"asn1-cms differential and structure test content\n"
 
+# PKCS#12 样本：复用已提交的证书与私钥，不生成新密钥。
+# (C 标识符词干, 说明, openssl pkcs12 -export 参数)
+PKCS12_PASSPHRASE = "asn1-test"
+PKCS12_SAMPLES = [
+    (
+        "pfx_rsa_unencrypted",
+        "PFX，证书 + RSA 私钥，SafeContents 未加密、无 MAC",
+        ["-inkey", "key_rsa_pkcs8.pem", "-in", "cert_rsa_selfsigned.pem",
+         "-name", "asn1-test-key",
+         "-keypbe", "NONE", "-certpbe", "NONE", "-nomac"],
+    ),
+    (
+        "pfx_rsa_encrypted",
+        "PFX，证书 + RSA 私钥，PBES2 / AES-256-CBC，SHA-256 MAC，iterations 2048",
+        ["-inkey", "key_rsa_pkcs8.pem", "-in", "cert_rsa_selfsigned.pem",
+         "-name", "asn1-test-key",
+         "-keypbe", "AES-256-CBC", "-certpbe", "AES-256-CBC",
+         "-macalg", "sha256", "-iter", "2048"],
+    ),
+    (
+        "pfx_certs_only",
+        "PFX，仅证书，certBag 使用 AES-256-CBC，SHA-256 MAC",
+        ["-nokeys", "-in", "cert_rsa_selfsigned.pem",
+         "-name", "asn1-cert-only",
+         "-certpbe", "AES-256-CBC", "-macalg", "sha256", "-iter", "2048"],
+    ),
+]
+
 
 def run_openssl(args):
     """调用 openssl，失败时给出可读错误。"""
@@ -290,6 +319,28 @@ def generate_cms():
             os.unlink(content_path)
 
 
+def generate_pkcs12():
+    """用已提交的证书/私钥生成 PKCS#12 PFX 样本。
+
+    PFX 中的 MAC、盐与加密填充含随机成分，重新生成得到的字节与仓库内已
+    提交版本不同；测试只依赖结构字段（版本、OID、计数、原始 TLV），不对
+    MAC 值或密文做断言。
+    """
+    required = ("key_rsa_pkcs8.pem", "cert_rsa_selfsigned.pem")
+    for stem in required:
+        if not (DATA_DIR / stem).exists():
+            sys.stderr.write("缺少 PKCS#12 材料源文件：%s\n" % (DATA_DIR / stem))
+            raise SystemExit(1)
+
+    for stem, description, args in PKCS12_SAMPLES:
+        der_path = DATA_DIR / (stem + ".der")
+        command = [str(DATA_DIR / arg) if arg.endswith(".pem") else arg
+                   for arg in args]
+        run_openssl(["pkcs12", "-export"] + command +
+                    ["-passout", "pass:%s" % PKCS12_PASSPHRASE,
+                     "-out", str(der_path)])
+
+
 def c_identifier(stem):
     """cert_rsa_selfsigned -> CertRsaSelfsigned。"""
     return "".join(part.capitalize() for part in stem.split("_"))
@@ -343,6 +394,8 @@ C 数组表示，测试运行期不读文件。
   `python scripts/gen_test_data.py --derived`。
 - 只用已提交的证书/私钥生成 CMS SignedData 样本：
   `python scripts/gen_test_data.py --cms`。
+- 只用已提交的证书/私钥生成 PKCS#12 PFX 样本：
+  `python scripts/gen_test_data.py --pkcs12`。
 
 | 文件 | 内容 |
 | --- | --- |
@@ -362,6 +415,9 @@ C 数组表示，测试运行期不读文件。
 | `cms_rsa_minimal.der` | CMS ContentInfo(SignedData) 最小样本，detached、无证书、无 signedAttrs |
 | `cms_rsa_ec_multicert.der` | CMS ContentInfo(SignedData)，RSA + ECDSA 双签名者、多证书、attached |
 | `cms_rsa_keyid.der` | CMS ContentInfo(SignedData)，SignerIdentifier 为 subjectKeyIdentifier |
+| `pfx_rsa_unencrypted.der` | PKCS#12 PFX，证书 + RSA 私钥，SafeContents 未加密、无 MAC，含 friendlyName/localKeyId |
+| `pfx_rsa_encrypted.der` | PKCS#12 PFX，证书 + RSA 私钥，PBES2 / AES-256-CBC，SHA-256 MAC，iterations 2048 |
+| `pfx_certs_only.der` | PKCS#12 PFX，仅证书，certBag 使用 AES-256-CBC，SHA-256 MAC |
 
 ## 重现性说明
 
@@ -373,6 +429,8 @@ C 数组表示，测试运行期不读文件。
 - CMS 样本的签名值（ECDSA 随机）与 signingTime 含随机/时间成分，重跑得到的
   字节与已提交快照不同；测试只读取结构字段（版本、OID、原始 TLV、计数），
   不对签名值或时间做断言。
+- PKCS#12 样本的 MAC、盐与加密填充含随机成分，重跑得到的字节与已提交快照
+  不同；测试只读取结构字段，不对 MAC 值或密文做断言。
 
 ## 变异样本
 
@@ -388,19 +446,23 @@ def main(argv):
     headers_only = "--headers" in argv[1:]
     derived_only = "--derived" in argv[1:]
     cms_only = "--cms" in argv[1:]
+    pkcs12_only = "--pkcs12" in argv[1:]
 
     try:
-        if not headers_only and (derived_only or cms_only):
+        if not headers_only and (derived_only or cms_only or pkcs12_only):
             if derived_only:
                 generate_derived()
             if cms_only:
                 generate_cms()
+            if pkcs12_only:
+                generate_pkcs12()
         elif not headers_only:
             generate_keys()
             generate_csrs()
             generate_certs()
             generate_derived()
             generate_cms()
+            generate_pkcs12()
     finally:
         if _CONFIG_PATH is not None and os.path.exists(_CONFIG_PATH):
             os.unlink(_CONFIG_PATH)

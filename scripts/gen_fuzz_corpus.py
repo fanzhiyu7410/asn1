@@ -24,6 +24,10 @@ PKCS_BINS = [
         "pkcs1_rsa_private_key_schema.bin",
         "pkcs10_certification_request_schema.bin",
         "pkcs10_certification_request_info_schema.bin",
+        "pkcs12_pfx_schema.bin",
+        "pkcs12_authenticated_safe_schema.bin",
+        "pkcs12_safe_contents_schema.bin",
+        "pkcs12_cert_bag_schema.bin",
     ]
 ]
 
@@ -358,6 +362,9 @@ MODULE_CORPORA = {
         "key_rsa_pkcs1_public.der",
         "csr_rsa.der",
         "csr_ec.der",
+        "pfx_rsa_unencrypted.der",
+        "pfx_rsa_encrypted.der",
+        "pfx_certs_only.der",
     ],
     "cms_open": [
         "cms_rsa_attached.der",

@@ -14,23 +14,30 @@ project(
 
 set(ASN1_PKCS_SOURCES
   src/asn1_pkcs_structures.cpp
+  src/asn1_pkcs12_structures.cpp
   src/asn1_pkcs_version.cpp
+  src/pkcs_handle.cpp
   src/pkcs8_private_key_info_table.cpp
   src/pkcs8_encrypted_private_key_info_table.cpp
   src/pkcs1_rsa_public_key_table.cpp
   src/pkcs1_rsa_private_key_table.cpp
   src/pkcs10_certification_request_table.cpp
   src/pkcs10_certification_request_info_table.cpp
+  src/pkcs12_pfx_table.cpp
+  src/pkcs12_authenticated_safe_table.cpp
+  src/pkcs12_safe_contents_table.cpp
+  src/pkcs12_cert_bag_table.cpp
 )
 set(ASN1_PKCS_TARGETS "")
 
 # 描述表产物：检入 modules/pkcs/generated/，未安装、不进入公共头。
-# PKCS#8 + PKCS#1 + PKCS#10 共 6 个顶层结构，asn1c 每张表只接受一个 --root，
-# 因此生成 6 张表。
+# PKCS#8 + PKCS#1 + PKCS#10 + PKCS#12 共 10 个顶层结构，asn1c 每张表只接受
+# 一个 --root，因此生成 10 张表。
 set(ASN1_PKCS_CHECKED_IN_DIR "${CMAKE_CURRENT_SOURCE_DIR}/generated")
 set(ASN1_PKCS_ASN1_5208 "${CMAKE_CURRENT_SOURCE_DIR}/asn1/PKCS8-Flattened-5208.asn1")
 set(ASN1_PKCS_ASN1_8017 "${CMAKE_CURRENT_SOURCE_DIR}/asn1/PKCS1-Flattened-8017.asn1")
 set(ASN1_PKCS_ASN1_2986 "${CMAKE_CURRENT_SOURCE_DIR}/asn1/PKCS10-Flattened-2986.asn1")
+set(ASN1_PKCS_ASN1_7292 "${CMAKE_CURRENT_SOURCE_DIR}/asn1/PKCS12-Flattened-7292.asn1")
 
 set(ASN1_PKCS_TABLE_NAMES
   pkcs8_private_key_info_schema
@@ -39,6 +46,10 @@ set(ASN1_PKCS_TABLE_NAMES
   pkcs1_rsa_private_key_schema
   pkcs10_certification_request_schema
   pkcs10_certification_request_info_schema
+  pkcs12_pfx_schema
+  pkcs12_authenticated_safe_schema
+  pkcs12_safe_contents_schema
+  pkcs12_cert_bag_schema
 )
 set(ASN1_PKCS_TABLE_ROOTS
   PrivateKeyInfo
@@ -47,6 +58,10 @@ set(ASN1_PKCS_TABLE_ROOTS
   RSAPrivateKey
   CertificationRequest
   CertificationRequestInfo
+  PFX
+  AuthenticatedSafe
+  SafeContents
+  CertBag
 )
 set(ASN1_PKCS_TABLE_INPUTS
   "${ASN1_PKCS_ASN1_5208}"
@@ -55,6 +70,10 @@ set(ASN1_PKCS_TABLE_INPUTS
   "${ASN1_PKCS_ASN1_8017}"
   "${ASN1_PKCS_ASN1_2986}"
   "${ASN1_PKCS_ASN1_2986}"
+  "${ASN1_PKCS_ASN1_7292}"
+  "${ASN1_PKCS_ASN1_7292}"
+  "${ASN1_PKCS_ASN1_7292}"
+  "${ASN1_PKCS_ASN1_7292}"
 )
 
 set(ASN1_PKCS_CHECKED_IN_BINARIES "")

@@ -14,6 +14,8 @@ C 数组表示，测试运行期不读文件。
   `python scripts/gen_test_data.py --derived`。
 - 只用已提交的证书/私钥生成 CMS SignedData 样本：
   `python scripts/gen_test_data.py --cms`。
+- 只用已提交的证书/私钥生成 PKCS#12 PFX 样本：
+  `python scripts/gen_test_data.py --pkcs12`。
 
 | 文件 | 内容 |
 | --- | --- |
@@ -33,6 +35,9 @@ C 数组表示，测试运行期不读文件。
 | `cms_rsa_minimal.der` | CMS ContentInfo(SignedData) 最小样本，detached、无证书、无 signedAttrs |
 | `cms_rsa_ec_multicert.der` | CMS ContentInfo(SignedData)，RSA + ECDSA 双签名者、多证书、attached |
 | `cms_rsa_keyid.der` | CMS ContentInfo(SignedData)，SignerIdentifier 为 subjectKeyIdentifier |
+| `pfx_rsa_unencrypted.der` | PKCS#12 PFX，证书 + RSA 私钥，SafeContents 未加密、无 MAC，含 friendlyName/localKeyId |
+| `pfx_rsa_encrypted.der` | PKCS#12 PFX，证书 + RSA 私钥，PBES2 / AES-256-CBC，SHA-256 MAC，iterations 2048 |
+| `pfx_certs_only.der` | PKCS#12 PFX，仅证书，certBag 使用 AES-256-CBC，SHA-256 MAC |
 
 ## 重现性说明
 
@@ -44,6 +49,8 @@ C 数组表示，测试运行期不读文件。
 - CMS 样本的签名值（ECDSA 随机）与 signingTime 含随机/时间成分，重跑得到的
   字节与已提交快照不同；测试只读取结构字段（版本、OID、原始 TLV、计数），
   不对签名值或时间做断言。
+- PKCS#12 样本的 MAC、盐与加密填充含随机成分，重跑得到的字节与已提交快照
+  不同；测试只读取结构字段，不对 MAC 值或密文做断言。
 
 ## 变异样本
 

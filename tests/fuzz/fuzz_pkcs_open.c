@@ -2,11 +2,13 @@
  * Copyright (c) 2026 asn1 project contributors
  * SPDX-License-Identifier: MIT
  *
- * libFuzzer harness：asn1-pkcs 五个只读结构的打开与访问面。
+ * libFuzzer harness：asn1-pkcs 只读结构的打开与访问面。
  *
  * 同一份输入依次尝试 PrivateKeyInfo / EncryptedPrivateKeyInfo /
- * RSAPublicKey / RSAPrivateKey / CertificationRequest；任一 open 成功就
- * 遍历该句柄的全部访问器。带下标的访问器按 0 / count / SIZE_MAX 探测。
+ * RSAPublicKey / RSAPrivateKey / CertificationRequest 以及 PKCS#12 的
+ * PFX / AuthenticatedSafe / SafeContents / CertBag；任一 open 成功就遍历
+ * 该句柄的全部访问器，并按 contentType/bagId 继续解析嵌套结构。带下标的
+ * 访问器按 0 / count / SIZE_MAX 探测。
  */
 #include <asn1/pkcs/pkcs.h>
 
@@ -298,6 +300,300 @@ static void scan_certification_request(
         request, &bytes, NULL);
 }
 
+/* ---------- PKCS#12 ---------- */
+
+/* 从完整 TLV 中取 primitive OCTET STRING 内容；不匹配返回 NULL。 */
+static const uint8_t *octets_content(const uint8_t *tlv, size_t tlv_size,
+                                     size_t *out_size)
+{
+    size_t header = 2;
+    size_t length;
+    if (tlv == NULL || tlv_size < 2 || tlv[0] != 0x04u) {
+        return NULL;
+    }
+    length = tlv[1];
+    if ((length & 0x80u) != 0) {
+        size_t count = length & 0x7Fu;
+        if (count == 0 || count > sizeof(size_t) ||
+            tlv_size < 2 + count) {
+            return NULL;
+        }
+        length = 0;
+        for (size_t i = 0; i < count; ++i) {
+            if (length > (SIZE_MAX >> 8)) {
+                return NULL;
+            }
+            length = (length << 8) | tlv[2 + i];
+        }
+        header = 2 + count;
+    }
+    if (length != tlv_size - header) {
+        return NULL;
+    }
+    *out_size = length;
+    return tlv + header;
+}
+
+static int text_is(const char *text, size_t text_size, const char *expected)
+{
+    size_t expected_size = strlen(expected);
+    return text != NULL && text_size == expected_size &&
+           memcmp(text, expected, expected_size) == 0;
+}
+
+static void scan_cert_bag(const asn1_pkcs12_cert_bag_t *bag)
+{
+    const char *text = NULL;
+    size_t text_size = 0;
+    const uint8_t *bytes = NULL;
+    size_t bytes_size = 0;
+
+    (void)asn1_pkcs12_cert_bag_cert_id(bag, &text, &text_size);
+    (void)asn1_pkcs12_cert_bag_cert_id(bag, NULL, &text_size);
+    (void)asn1_pkcs12_cert_bag_cert_id(bag, &text, NULL);
+
+    (void)asn1_pkcs12_cert_bag_cert_value_tlv(bag, &bytes, &bytes_size);
+    (void)asn1_pkcs12_cert_bag_cert_value_tlv(bag, NULL, &bytes_size);
+    (void)asn1_pkcs12_cert_bag_cert_value_tlv(bag, &bytes, NULL);
+
+    (void)asn1_pkcs12_cert_bag_certificate(bag, &bytes, &bytes_size);
+    (void)asn1_pkcs12_cert_bag_certificate(bag, NULL, &bytes_size);
+    (void)asn1_pkcs12_cert_bag_certificate(bag, &bytes, NULL);
+}
+
+static void scan_safe_contents(asn1_ctx_t *ctx,
+                               const asn1_pkcs12_safe_contents_t *contents);
+
+static void scan_safe_bag(asn1_ctx_t *ctx,
+                          const asn1_pkcs12_safe_contents_t *contents,
+                          size_t bag_index)
+{
+    const char *bag_id = NULL;
+    size_t bag_id_size = 0;
+    const uint8_t *value = NULL;
+    size_t value_size = 0;
+    size_t attribute_count = 0;
+    int probe;
+
+    if (asn1_pkcs12_safe_contents_bag_at(contents, bag_index, &bag_id,
+                                         &bag_id_size, &value,
+                                         &value_size,
+                                         &attribute_count) != ASN1_OK) {
+        return;
+    }
+
+    /* bagValue 的完整 TLV：按 bagId 尝试可继续解析的结构。 */
+    if (value != NULL) {
+        if (text_is(bag_id, bag_id_size,
+                    "1.2.840.113549.1.12.10.1.3")) {
+            asn1_pkcs12_cert_bag_t *bag = NULL;
+            if (asn1_pkcs12_cert_bag_open(
+                    ctx, value, value_size, &bag) ==
+                    ASN1_OK &&
+                bag != NULL) {
+                scan_cert_bag(bag);
+            }
+            asn1_pkcs12_cert_bag_close(bag);
+        } else if (text_is(bag_id, bag_id_size,
+                           "1.2.840.113549.1.12.10.1.1")) {
+            asn1_pkcs_private_key_info_t *info = NULL;
+            if (asn1_pkcs_private_key_info_open(
+                    ctx, value, value_size, &info) ==
+                    ASN1_OK &&
+                info != NULL) {
+                scan_private_key_info(info);
+            }
+            asn1_pkcs_private_key_info_close(info);
+        } else if (text_is(bag_id, bag_id_size,
+                           "1.2.840.113549.1.12.10.1.2")) {
+            asn1_pkcs_encrypted_private_key_info_t *info = NULL;
+            if (asn1_pkcs_encrypted_private_key_info_open(
+                    ctx, value, value_size, &info) ==
+                    ASN1_OK &&
+                info != NULL) {
+                scan_encrypted_private_key_info(info);
+            }
+            asn1_pkcs_encrypted_private_key_info_close(info);
+        }
+    }
+
+    for (probe = 0; probe < FUZZ_INDEX_PROBES; ++probe) {
+        const char *attr_id = NULL;
+        size_t attr_id_size = 0;
+        const asn1_node_t *values = NULL;
+        size_t index = fuzz_probe_index(attribute_count, probe);
+        (void)asn1_pkcs12_safe_contents_bag_attribute_at(
+            contents, bag_index, index, &attr_id, &attr_id_size, &values);
+        fuzz_walk(values);
+    }
+
+    {
+        const char *attr_id = NULL;
+        size_t attr_id_size = 0;
+        const asn1_node_t *values = NULL;
+        (void)asn1_pkcs12_safe_contents_bag_attribute_at(
+            contents, bag_index, 0, NULL, &attr_id_size, &values);
+        (void)asn1_pkcs12_safe_contents_bag_attribute_at(
+            contents, bag_index, 0, &attr_id, NULL, &values);
+        (void)asn1_pkcs12_safe_contents_bag_attribute_at(
+            contents, bag_index, 0, &attr_id, &attr_id_size, NULL);
+    }
+
+}
+
+static void scan_safe_contents(asn1_ctx_t *ctx,
+                               const asn1_pkcs12_safe_contents_t *contents)
+{
+    size_t count = 0;
+    int probe;
+
+    (void)asn1_pkcs12_safe_contents_bag_count(contents, &count);
+    (void)asn1_pkcs12_safe_contents_bag_count(contents, NULL);
+
+    for (probe = 0; probe < FUZZ_INDEX_PROBES; ++probe) {
+        size_t index = fuzz_probe_index(count, probe);
+        scan_safe_bag(ctx, contents, index);
+    }
+
+    {
+        const char *bag_id = NULL;
+        size_t bag_id_size = 0;
+        const uint8_t *value = NULL;
+        size_t value_size = 0;
+        size_t attribute_count = 0;
+        (void)asn1_pkcs12_safe_contents_bag_at(
+            contents, 0, NULL, &bag_id_size, &value, &value_size,
+            &attribute_count);
+        (void)asn1_pkcs12_safe_contents_bag_at(
+            contents, 0, &bag_id, NULL, &value, &value_size,
+            &attribute_count);
+        (void)asn1_pkcs12_safe_contents_bag_at(
+            contents, 0, &bag_id, &bag_id_size, NULL, &value_size,
+            &attribute_count);
+        (void)asn1_pkcs12_safe_contents_bag_at(
+            contents, 0, &bag_id, &bag_id_size, &value, NULL,
+            &attribute_count);
+        (void)asn1_pkcs12_safe_contents_bag_at(
+            contents, 0, &bag_id, &bag_id_size, &value, &value_size, NULL);
+    }
+}
+
+static void scan_authenticated_safe(
+    asn1_ctx_t *ctx, const asn1_pkcs12_authenticated_safe_t *safe)
+{
+    size_t count = 0;
+    int probe;
+
+    (void)asn1_pkcs12_authenticated_safe_content_count(safe, &count);
+    (void)asn1_pkcs12_authenticated_safe_content_count(safe, NULL);
+
+    for (probe = 0; probe < FUZZ_INDEX_PROBES; ++probe) {
+        const char *type_oid = NULL;
+        size_t type_oid_size = 0;
+        const uint8_t *inner = NULL;
+        size_t inner_size = 0;
+        size_t index = fuzz_probe_index(count, probe);
+        if (asn1_pkcs12_authenticated_safe_content_at(
+                safe, index, &type_oid, &type_oid_size, &inner,
+                &inner_size) != ASN1_OK) {
+            continue;
+        }
+        if (text_is(type_oid, type_oid_size, "1.2.840.113549.1.7.1")) {
+            size_t payload_size = 0;
+            const uint8_t *payload =
+                octets_content(inner, inner_size, &payload_size);
+            if (payload != NULL) {
+                asn1_pkcs12_safe_contents_t *contents = NULL;
+                if (asn1_pkcs12_safe_contents_open(
+                        ctx, payload, payload_size,
+                        &contents) == ASN1_OK &&
+                    contents != NULL) {
+                    scan_safe_contents(ctx, contents);
+                }
+                asn1_pkcs12_safe_contents_close(contents);
+            }
+        }
+    }
+
+    {
+        const char *type_oid = NULL;
+        size_t type_oid_size = 0;
+        const uint8_t *inner = NULL;
+        size_t inner_size = 0;
+        (void)asn1_pkcs12_authenticated_safe_content_at(
+            safe, 0, NULL, &type_oid_size, &inner, &inner_size);
+        (void)asn1_pkcs12_authenticated_safe_content_at(
+            safe, 0, &type_oid, NULL, &inner, &inner_size);
+        (void)asn1_pkcs12_authenticated_safe_content_at(
+            safe, 0, &type_oid, &type_oid_size, NULL, &inner_size);
+        (void)asn1_pkcs12_authenticated_safe_content_at(
+            safe, 0, &type_oid, &type_oid_size, &inner, NULL);
+    }
+}
+
+static void scan_pfx(asn1_ctx_t *ctx, const asn1_pkcs12_pfx_t *pfx)
+{
+    int64_t version = 0;
+    const char *text = NULL;
+    size_t text_size = 0;
+    const uint8_t *bytes = NULL;
+    size_t bytes_size = 0;
+    int present = 0;
+    int64_t iterations = 0;
+
+    (void)asn1_pkcs12_pfx_version(pfx, &version);
+    (void)asn1_pkcs12_pfx_version(pfx, NULL);
+
+    (void)asn1_pkcs12_pfx_auth_safe_content_type(pfx, &text, &text_size);
+    (void)asn1_pkcs12_pfx_auth_safe_content_type(pfx, NULL, &text_size);
+    (void)asn1_pkcs12_pfx_auth_safe_content_type(pfx, &text, NULL);
+
+    (void)asn1_pkcs12_pfx_mac_present(pfx, &present);
+    (void)asn1_pkcs12_pfx_mac_present(pfx, NULL);
+
+    (void)asn1_pkcs12_pfx_mac_digest_algorithm_oid(pfx, &text, &text_size);
+    (void)asn1_pkcs12_pfx_mac_digest_algorithm_oid(pfx, NULL, &text_size);
+    (void)asn1_pkcs12_pfx_mac_digest_algorithm_oid(pfx, &text, NULL);
+
+    (void)asn1_pkcs12_pfx_mac_digest_algorithm_parameters(
+        pfx, &bytes, &bytes_size);
+    (void)asn1_pkcs12_pfx_mac_digest_algorithm_parameters(
+        pfx, NULL, &bytes_size);
+    (void)asn1_pkcs12_pfx_mac_digest_algorithm_parameters(pfx, &bytes, NULL);
+
+    (void)asn1_pkcs12_pfx_mac_digest(pfx, &bytes, &bytes_size);
+    (void)asn1_pkcs12_pfx_mac_digest(pfx, NULL, &bytes_size);
+    (void)asn1_pkcs12_pfx_mac_digest(pfx, &bytes, NULL);
+
+    (void)asn1_pkcs12_pfx_mac_salt(pfx, &bytes, &bytes_size);
+    (void)asn1_pkcs12_pfx_mac_salt(pfx, NULL, &bytes_size);
+    (void)asn1_pkcs12_pfx_mac_salt(pfx, &bytes, NULL);
+
+    (void)asn1_pkcs12_pfx_mac_iterations(pfx, &iterations);
+    (void)asn1_pkcs12_pfx_mac_iterations(pfx, NULL);
+
+    {
+        size_t payload_size = 0;
+        const uint8_t *payload = NULL;
+        if (asn1_pkcs12_pfx_auth_safe_content_tlv(pfx, &bytes,
+                                                  &bytes_size) == ASN1_OK) {
+            payload = octets_content(bytes, bytes_size, &payload_size);
+        }
+        (void)asn1_pkcs12_pfx_auth_safe_content_tlv(pfx, NULL, &bytes_size);
+        (void)asn1_pkcs12_pfx_auth_safe_content_tlv(pfx, &bytes, NULL);
+        if (payload != NULL) {
+            asn1_pkcs12_authenticated_safe_t *safe = NULL;
+            if (asn1_pkcs12_authenticated_safe_open(
+                    ctx, payload, payload_size,
+                    &safe) == ASN1_OK &&
+                safe != NULL) {
+                scan_authenticated_safe(ctx, safe);
+            }
+            asn1_pkcs12_authenticated_safe_close(safe);
+        }
+    }
+}
+
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
     asn1_ctx_t *ctx = fuzz_ctx_create();
@@ -316,8 +612,16 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
                          asn1_pkcs_rsa_private_key_t, ctx, data, size);
     FUZZ_OPEN_ARG_PROBES(asn1_pkcs_certification_request_open,
                          asn1_pkcs_certification_request_t, ctx, data, size);
+    FUZZ_OPEN_ARG_PROBES(asn1_pkcs12_pfx_open, asn1_pkcs12_pfx_t, ctx, data,
+                         size);
+    FUZZ_OPEN_ARG_PROBES(asn1_pkcs12_authenticated_safe_open,
+                         asn1_pkcs12_authenticated_safe_t, ctx, data, size);
+    FUZZ_OPEN_ARG_PROBES(asn1_pkcs12_safe_contents_open,
+                         asn1_pkcs12_safe_contents_t, ctx, data, size);
+    FUZZ_OPEN_ARG_PROBES(asn1_pkcs12_cert_bag_open,
+                         asn1_pkcs12_cert_bag_t, ctx, data, size);
 
-    /* 同一输入按五种结构依次尝试；只扫描打开成功的句柄。
+    /* 同一输入按各结构依次尝试；只扫描打开成功的句柄。
      * 每个句柄 close 一次；置空后再 close 覆盖 close(NULL) 重复调用。
      * 同一非空指针的重复 close 不在契约内，不在此构造。 */
     {
@@ -374,6 +678,48 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
         asn1_pkcs_certification_request_close(handle);
         handle = NULL;
         asn1_pkcs_certification_request_close(handle);
+    }
+    {
+        asn1_pkcs12_pfx_t *handle = NULL;
+        if (asn1_pkcs12_pfx_open(ctx, data, size, &handle) == ASN1_OK &&
+            handle != NULL) {
+            scan_pfx(ctx, handle);
+        }
+        asn1_pkcs12_pfx_close(handle);
+        handle = NULL;
+        asn1_pkcs12_pfx_close(handle);
+    }
+    {
+        asn1_pkcs12_authenticated_safe_t *handle = NULL;
+        if (asn1_pkcs12_authenticated_safe_open(ctx, data, size, &handle) ==
+                ASN1_OK &&
+            handle != NULL) {
+            scan_authenticated_safe(ctx, handle);
+        }
+        asn1_pkcs12_authenticated_safe_close(handle);
+        handle = NULL;
+        asn1_pkcs12_authenticated_safe_close(handle);
+    }
+    {
+        asn1_pkcs12_safe_contents_t *handle = NULL;
+        if (asn1_pkcs12_safe_contents_open(ctx, data, size, &handle) ==
+                ASN1_OK &&
+            handle != NULL) {
+            scan_safe_contents(ctx, handle);
+        }
+        asn1_pkcs12_safe_contents_close(handle);
+        handle = NULL;
+        asn1_pkcs12_safe_contents_close(handle);
+    }
+    {
+        asn1_pkcs12_cert_bag_t *handle = NULL;
+        if (asn1_pkcs12_cert_bag_open(ctx, data, size, &handle) == ASN1_OK &&
+            handle != NULL) {
+            scan_cert_bag(handle);
+        }
+        asn1_pkcs12_cert_bag_close(handle);
+        handle = NULL;
+        asn1_pkcs12_cert_bag_close(handle);
     }
 
     asn1_ctx_destroy(ctx);
