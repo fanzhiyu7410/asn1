@@ -374,6 +374,7 @@ WrappedChoice ::= [0] EXPLICIT ExampleChoice
 - ANY 节点不可改写：`asn1_doc_set_node_content` 对 ANY 返回 `ASN1_E_INVALID_STATE`。
 - 编码：无 schema 的通用编码器按节点保存的 TLV 原样写回（此时节点 TLV 已是含包装的完整形态，不重复加包装）；schema 感知编码对 EXPLICIT ANY 按 schema 重新加外层包装，对无包装 ANY 写回原始 TLV。**schema 感知 DER 编码要求这些保留 TLV 是规范 DER**：BER 不定长、非最短长度、长形式标签表示小 tag number、构造字符串、非规范基本值、未排序 `SET`/`SET OF` 等返回 `ASN1_E_NON_CANONICAL`，不做隐式重新编码；无 schema 通用编码路径仍允许 BER 源原样往返。若节点缺少可用原始 TLV（例如既不是解码节点、也不是 ANY 节点的 runtime 构树节点），编码返回 `ASN1_E_INVALID_STATE`。该错误码是“保留 TLV 与节点状态不一致”的唯一约定值。
 - **runtime 构树 ANY**：`asn1_node_create_any` 接受的原始 TLV 复制进文档 arena 并挂在节点上，因此 `asn1_node_tlv` 对这类节点同样返回完整 TLV，`asn1_node_content` 返回内容切片。其编码行为与解码得到的 ANY 一致：无 schema 通用编码逐字节写回；schema 感知编码按同一套 `ASN1_E_NON_CANONICAL` 规则校验保留 TLV。ANY 节点不建立子节点，`asn1_node_create` 以其为父节点返回 `ASN1_E_INVALID_STATE`。
+- **资源上限与错误分类**：ANY 保留 TLV 的规范性校验与内层遍历使用与解码相同的 `max_depth` 预算（上下文默认，或解码/校验选项收紧后的值）。ANY 内层 TLV 嵌套超限返回 `ASN1_E_DEPTH_LIMIT`；节点数、输入字节数、内存预算超限分别返回 `ASN1_E_NODE_LIMIT`、`ASN1_E_INPUT_LIMIT`、`ASN1_E_MEMORY_LIMIT`/`ASN1_E_STATIC_POOL_EXHAUSTED`。这些资源类失败**不是**“非规范 DER”，不会改写为 `ASN1_E_NON_CANONICAL`。
 
 **SEQUENCE 中的消歧规则（封存期强制）**
 
@@ -917,6 +918,7 @@ struct asn1_buf {
 - **严格检查**：`asn1_encode_*` 没有严格开关，默认保留未知字段；需要严格检查时先调用 `asn1_doc_validate(..., ASN1_DECODE_STRICT_SCHEMA)`，该路径对未知字段返回 `ASN1_E_SCHEMA_FIELD`。
 - **ANY 与保留 TLV 的 DER 一致性**：schema 感知 DER 编码中，`ANY` 节点与保留的未知字段只保证**规范 DER 源**按其原始 TLV 逐字节回写；BER 不定长、非最短长度、长形式标签表示小 tag number、构造字符串、非规范基本值、未排序 `SET`/`SET OF` 等非规范源返回 `ASN1_E_NON_CANONICAL`，**不做隐式重新编码**。无 schema 的通用编码路径（`schema == NULL`）对 `ANY` 仍按节点保存的 TLV 原样写回，允许 BER 源往返；其余普通节点按通用 DER 规范化重建。
 - **runtime 构树 ANY 一致性**：解码得到的 ANY 与 `asn1_node_create_any` 建立的 runtime ANY 在两条编码路径上行为一致——原始 TLV 均来自节点自身保留的字节；schema 路径同样执行上述规范性校验，不因来源不同而放宽或拒绝。
+- **DER 输出保证范围**：库只在两条路径承诺输出 DER——(1) **由规范 DER 输入解码得到的文档**，经通用编码重建（普通节点按内容重建，`ANY` 保留的原始 TLV 本身也是 DER）；(2) **`schema != NULL` 的 schema 感知编码**，保留 TLV 按上一条校验，非规范源直接拒绝。`schema == NULL` 且文档含 `ANY`/保留 TLV 时，通用编码器只保证“按保存字节原样写回”；若这些字节来自 BER 源或 runtime 构树时传入的非规范 TLV，输出可能不是 DER，库不做隐式规范化。需要严格 DER 输出时，应使用 schema 感知编码（以 `ASN1_E_NON_CANONICAL` 拒绝非规范保留 TLV），或先经 `asn1_doc_validate` 校验。
 - **DEFAULT 省略**：启用 schema 时，字段编码结果与 schema 中的规范 DER 默认值逐字节相同时省略该字段；未启用 schema 时无法判定 DEFAULT，一律输出。
 - **OPTIONAL**：未出现的可选字段不输出；出现但值等于默认值的 DEFAULT 字段按上一条省略。
 - **SET OF 排序**：按 DER 规则，将每个元素的完整 DER 编码字节按无符号字典序升序排列。启用 schema 时按元素类型的 schema 语义先规范化再排序；未启用 schema 时按节点保存的完整 TLV 字节排序。

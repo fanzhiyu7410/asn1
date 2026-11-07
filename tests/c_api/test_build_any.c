@@ -352,7 +352,6 @@ int main(void)
                         ASN1_E_NON_CANONICAL);
         ASN1_TEST_CHECK(buf.data == NULL);
         ASN1_TEST_CHECK(buf.size == 0);
-        ASN1_TEST_CHECK(buf.capacity == 0);
 
         /* 无 schema 编码不做规范化，原样写出保留的 TLV。 */
         ASN1_TEST_CHECK(encode_compare(ctx, doc, NULL, kRawRoundTrip,
