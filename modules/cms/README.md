@@ -79,16 +79,17 @@ CMS / PKCS#7 标准结构模块（RFC 5652），以 `.asn1` 描述表驱动，�
 | `asn1_cms_builder_add_digest_algorithm` | 追加 `digestAlgorithm`（至少一条）；`params` 为空表示 parameters 缺省 |
 | `asn1_cms_builder_set_econtent_type` | `eContentType` OID，必填；重复设置 `ASN1_E_INVALID_STATE` |
 | `asn1_cms_builder_set_econtent` | 设置 `eContent`（完整 DER OCTET STRING TLV）；不设置即 detached |
-| `asn1_cms_builder_add_certificate` / `add_crl` | 追加证书/CRL 原始 DER；只校验单 TLV，输出按 DER `SET OF` 排序 |
+| `asn1_cms_builder_add_certificate` / `add_crl` | 追加证书/CRL 原始 DER；校验单 TLV 与分支根标签，输出按 DER `SET OF` 排序 |
 | `asn1_cms_builder_add_signer` | 追加 `SignerInfo`（至少一条）；两种 `sid`、可选 `signedAttrs`/`unsignedAttrs` |
 | `asn1_cms_builder_encode` | 组装并编码 `ContentInfo`（`contentType = id-signedData`）到调用方缓冲 |
 
 语义约定：
 
 - **版本**：`CMSVersion` 与 `SignerInfo.version` 由调用方显式给值，模块不推导、不校验范围。
-- **signedAttrs 原样承载**：输入必须是完整、规范的 `SET OF` TLV（外层 `0x31`）；模块只把外层标签改写为 `0xA0`（`unsignedAttrs` 为 `0xB1`），长度字节与内容逐字节不变，不重建、不排序。签名覆盖的是 `SET OF` 编码，调用方必须对同一份字节签名，否则验签失败。非规范输入返回 `ASN1_E_NON_CANONICAL`。
-- **证书/CRL 不解析**：只校验“恰好一个完整规范 DER TLV”，不解析证书内部、不做信任判断；输出按 DER `SET OF` 规则排序。
-- **错误模型**：必填缺失、重复设置单值字段返回 `ASN1_E_INVALID_STATE`；OID 非法返回 `ASN1_E_INVALID_VALUE`；非单一合法 TLV 返回 `ASN1_E_TRUNCATED` / `ASN1_E_MALFORMED_LENGTH` / `ASN1_E_TRAILING_DATA` / `ASN1_E_NON_CANONICAL` 等核心错误码。失败不产出半成品缓冲。
+- **signedAttrs 原样承载**：输入必须是完整、规范的 `SET OF Attribute`（外层 `0x31`，非空且元素为 `SEQUENCE`）；模块只把外层标签改写为 `0xA0`（`unsignedAttrs` 为 `0xB1`），长度字节与内容逐字节不变，不重建、不排序。签名覆盖的是 `SET OF` 编码，调用方必须对同一份字节签名，否则验签失败。非规范输入返回 `ASN1_E_NON_CANONICAL`，空集合或元素不是 `SEQUENCE` 返回 `ASN1_E_INVALID_VALUE`。
+- **证书/CRL 不解析**：除“恰好一个完整规范 DER TLV”外，只检查分支根标签——证书须为 `Certificate` 的 `SEQUENCE` 或 `CertificateChoices` 的 `[0..3]` 备选，CRL 须为 `CertificateList` 的 `SEQUENCE` 或 `RevocationInfoChoice` 的 `other [1]`；不解析内部、不做信任判断；输出按 DER `SET OF` 规则排序。
+- **sid 根标签**：`issuerAndSerialNumber` 形式的 `issuer` 须为 `SEQUENCE`、`serialNumber` 须为 `INTEGER`；不符返回 `ASN1_E_INVALID_VALUE`。
+- **错误模型**：必填缺失、重复设置单值字段返回 `ASN1_E_INVALID_STATE`；OID 非法、根标签/分支不符返回 `ASN1_E_INVALID_VALUE`；非单一合法 TLV 返回 `ASN1_E_TRUNCATED` / `ASN1_E_MALFORMED_LENGTH` / `ASN1_E_TRAILING_DATA` / `ASN1_E_NON_CANONICAL` 等核心错误码。失败不产出半成品缓冲。
 - **输出所有权**：成功时 `asn1_buf_t` 由上下文分配，调用方用 `asn1_buf_release` 归还。
 
 ## 最小示例

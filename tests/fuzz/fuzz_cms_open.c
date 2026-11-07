@@ -2,11 +2,12 @@
  * Copyright (c) 2026 asn1 project contributors
  * SPDX-License-Identifier: MIT
  *
- * libFuzzer harness：asn1-cms ContentInfo / SignedData 只读访问面。
+ * libFuzzer harness：asn1-cms ContentInfo / SignedData 只读访问面与 builder 写路径。
  *
  * 输入先按 ContentInfo 打开；成功后把 content 字段的内层 TLV 再交给
  * SignedData open，覆盖两级结构。所有带下标的访问器按 0 / count /
- * SIZE_MAX 探测，并对 NULL 输出参数做边界调用。
+ * SIZE_MAX 探测，并对 NULL 输出参数做边界调用。随后用同一份输入驱动
+ * builder 的单 TLV 入口与 signer 路径并尝试编码，覆盖写侧校验与组装。
  */
 #include <asn1/cms/cms.h>
 
@@ -16,6 +17,11 @@
 
 #include "fuzz_common.h"
 #include "fuzz_module_common.h"
+
+static const char kSha256Oid[] = "2.16.840.1.101.3.4.2.1";
+static const char kDataOid[] = "1.2.840.113549.1.7.1";
+static const char kRsaEncryptionOid[] = "1.2.840.113549.1.1.1";
+static const uint8_t kNullParams[2] = {0x05, 0x00};
 
 static void scan_signer(const asn1_cms_signed_data_t *signed_data,
                         size_t index)
@@ -221,6 +227,47 @@ static void scan_content_info(asn1_ctx_t *ctx,
     }
 }
 
+/*
+ * 写路径：固定合法骨架保证 encode 可达，模糊输入只进入单 TLV 校验入口
+ * （eContent / 证书 / CRL / 参数 / sid / 属性集合 / 签名内容）。
+ */
+static void scan_builder(asn1_ctx_t *ctx, const uint8_t *data, size_t size)
+{
+    asn1_cms_builder_t *builder = NULL;
+    if (asn1_cms_builder_create(ctx, &builder) != ASN1_OK) {
+        return;
+    }
+
+    (void)asn1_cms_builder_set_version(builder, (int64_t)size);
+    (void)asn1_cms_builder_add_digest_algorithm(builder, kSha256Oid, NULL, 0);
+    (void)asn1_cms_builder_set_econtent_type(builder, kDataOid);
+
+    if (size != 0) {
+        (void)asn1_cms_builder_set_econtent(builder, data, size);
+        (void)asn1_cms_builder_add_certificate(builder, data, size);
+        (void)asn1_cms_builder_add_crl(builder, data, size);
+        (void)asn1_cms_builder_add_digest_algorithm(builder, kSha256Oid, data,
+                                                   size);
+        (void)asn1_cms_builder_add_signer(
+            builder, 1, ASN1_CMS_SID_SUBJECT_KEY_IDENTIFIER, data, size, NULL,
+            0, kSha256Oid, NULL, 0, data, size, kRsaEncryptionOid,
+            kNullParams, sizeof(kNullParams), data, size, data, size);
+        (void)asn1_cms_builder_add_signer(
+            builder, 1, ASN1_CMS_SID_ISSUER_AND_SERIAL, data, size, data, size,
+            kSha256Oid, NULL, 0, NULL, 0, kRsaEncryptionOid, kNullParams,
+            sizeof(kNullParams), data, size, NULL, 0);
+    }
+
+    {
+        asn1_buf_t encoded;
+        memset(&encoded, 0, sizeof(encoded));
+        (void)asn1_cms_builder_encode(builder, &encoded);
+        (void)asn1_buf_release(ctx, &encoded);
+    }
+    asn1_cms_builder_destroy(builder);
+    asn1_cms_builder_destroy(NULL);
+}
+
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
     asn1_ctx_t *ctx = fuzz_ctx_create();
@@ -281,6 +328,8 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
         signed_data = NULL;
         asn1_cms_signed_data_close(signed_data);
     }
+
+    scan_builder(ctx, data, size);
 
     asn1_ctx_destroy(ctx);
     return 0;

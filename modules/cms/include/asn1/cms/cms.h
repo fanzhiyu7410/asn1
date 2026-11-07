@@ -285,11 +285,12 @@ ASN1_CMS_API asn1_err_t asn1_cms_signed_data_signer_unsigned_attrs(
  * - CMSVersion 由调用方通过 asn1_cms_builder_set_version 显式给出，模块不
  *   推导、不校验范围；
  * - signedAttrs / unsignedAttrs 原样承载：输入必须是完整、规范的
- *   `SET OF` TLV（外层 `0x31`）；模块只把外层标签改写为 `0xA0`（
- *   signedAttrs）或 `0xB1`（unsignedAttrs），长度字节与内容逐字节不变，
- *   不重建、不排序。签名覆盖的是 SET OF 编码，调用方必须对同一份字节
- *   签名，否则验签失败；
- * - certificates / crls 只校验“恰好一个完整规范 DER TLV”，不解析证书内部、
+ *   `SET OF` TLV（外层 `0x31`），集合非空且每个元素为 `SEQUENCE`
+ *   （Attribute）；模块只把外层标签改写为 `0xA0`（signedAttrs）或
+ *   `0xB1`（unsignedAttrs），长度字节与内容逐字节不变，不重建、不排序。
+ *   签名覆盖的是 SET OF 编码，调用方必须对同一份字节签名，否则验签失败；
+ * - certificates / crls 校验“恰好一个完整规范 DER TLV”与分支根标签
+ *   （证书 SEQUENCE 或 [0..3]；CRL SEQUENCE 或 other [1]），不解析内部、
  *   不做信任判断；输出按 DER `SET OF` 规则排序。
  *
  * 生命周期：create 建立句柄，逐项设置/追加，encode 编码到调用方缓冲，
@@ -333,8 +334,11 @@ ASN1_CMS_API asn1_err_t asn1_cms_builder_set_econtent(
     asn1_cms_builder_t *builder, const uint8_t *econtent, size_t econtent_size);
 
 /*
- * 追加证书 / CRL：各为恰好一个完整、规范的 DER TLV。模块不解析内部字段，
- * 只做单 TLV 与规范性校验；输出按 DER SET OF 排序。
+ * 追加证书 / CRL：各为恰好一个完整、规范的 DER TLV。除单 TLV 与规范性
+ * 校验外，还检查分支根标签：证书须为 Certificate 的 SEQUENCE 或
+ * CertificateChoices 的 [0..3] 备选；CRL 须为 CertificateList 的
+ * SEQUENCE 或 RevocationInfoChoice 的 other [1]。模块不解析内部字段；
+ * 输出按 DER SET OF 排序。
  */
 ASN1_CMS_API asn1_err_t asn1_cms_builder_add_certificate(
     asn1_cms_builder_t *builder, const uint8_t *tlv, size_t tlv_size);
@@ -346,14 +350,15 @@ ASN1_CMS_API asn1_err_t asn1_cms_builder_add_crl(
  * 追加 SignerInfo（至少一条）。
  *
  * sid_kind = ASN1_CMS_SID_ISSUER_AND_SERIAL：
- *   sid1 = issuer Name 的完整 DER TLV，sid2 = serialNumber INTEGER 的完整
- *   DER TLV；两者都必须是完整规范 TLV。
+ *   sid1 = issuer Name 的完整 DER TLV（须为 SEQUENCE），sid2 =
+ *   serialNumber 的完整 DER TLV（须为 INTEGER）；两者都必须完整规范。
  * sid_kind = ASN1_CMS_SID_SUBJECT_KEY_IDENTIFIER：
  *   sid1 = subjectKeyIdentifier 内容字节（不含 tag/len），sid2 必须为空。
  *
  * digest_params / signature_params 为空表示 parameters 缺省，否则为完整
  * DER TLV。signed_attrs_tlv / unsigned_attrs_tlv 为空表示缺省，否则为
- * 完整 SET OF TLV（外层 0x31），按上文规则原样承载并改写外层标签。
+ * 非空 SET OF Attribute（外层 0x31，元素为 SEQUENCE），按上文规则原样
+ * 承载并改写外层标签；根标签不符返回 ASN1_E_INVALID_VALUE。
  * signature 为 OCTET STRING 内容字节。
  */
 ASN1_CMS_API asn1_err_t asn1_cms_builder_add_signer(

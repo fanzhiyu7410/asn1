@@ -675,6 +675,82 @@ static int builder_negative_cases(asn1_ctx_t *ctx)
                         ASN1_E_NON_CANONICAL);
     }
 
+    {
+        /* CertificateChoices / RevocationInfoChoice 根标签校验。 */
+        static const uint8_t kName[2] = {0x30, 0x00};
+        static const uint8_t kSerial[3] = {0x02, 0x01, 0x01};
+        static const uint8_t kOctets[2] = {0x04, 0x00};
+        static const uint8_t kCertAlt[4] = {0xA0, 0x02, 0x30, 0x00};
+        static const uint8_t kCrlOther[4] = {0xA1, 0x02, 0x30, 0x00};
+        static const uint8_t kEmptySet[2] = {0x31, 0x00};
+        static const uint8_t kIntSet[5] = {0x31, 0x03, 0x02, 0x01, 0x01};
+        static const uint8_t kAttributeSet[9] = {
+            0x31, 0x07, 0x30, 0x05, 0x06, 0x03, 0x2A, 0x03, 0x04};
+
+        ASN1_TEST_CHECK(asn1_cms_builder_add_certificate(
+                            builder, kOctets, sizeof(kOctets)) ==
+                        ASN1_E_INVALID_VALUE);
+        ASN1_TEST_CHECK(asn1_cms_builder_add_certificate(
+                            builder, kCertAlt, sizeof(kCertAlt)) == ASN1_OK);
+        ASN1_TEST_CHECK(asn1_cms_builder_add_crl(builder, kOctets,
+                                                 sizeof(kOctets)) ==
+                        ASN1_E_INVALID_VALUE);
+        ASN1_TEST_CHECK(asn1_cms_builder_add_crl(builder, kCrlOther,
+                                                 sizeof(kCrlOther)) == ASN1_OK);
+
+        /* issuer 必须是 SEQUENCE，serialNumber 必须是 INTEGER。 */
+        ASN1_TEST_CHECK(asn1_cms_builder_add_signer(
+                            builder, 1, ASN1_CMS_SID_ISSUER_AND_SERIAL, kOctets,
+                            sizeof(kOctets), kSerial, sizeof(kSerial),
+                            kSha256Oid, NULL, 0, NULL, 0, kRsaEncryptionOid,
+                            kNullParams, sizeof(kNullParams), kOctets,
+                            sizeof(kOctets), NULL, 0) == ASN1_E_INVALID_VALUE);
+        ASN1_TEST_CHECK(asn1_cms_builder_add_signer(
+                            builder, 1, ASN1_CMS_SID_ISSUER_AND_SERIAL, kName,
+                            sizeof(kName), kOctets, sizeof(kOctets), kSha256Oid,
+                            NULL, 0, NULL, 0, kRsaEncryptionOid, kNullParams,
+                            sizeof(kNullParams), kOctets, sizeof(kOctets), NULL,
+                            0) == ASN1_E_INVALID_VALUE);
+        ASN1_TEST_CHECK(asn1_cms_builder_add_signer(
+                            builder, 1, ASN1_CMS_SID_ISSUER_AND_SERIAL, kName,
+                            sizeof(kName), kSerial, sizeof(kSerial), kSha256Oid,
+                            NULL, 0, NULL, 0, kRsaEncryptionOid, kNullParams,
+                            sizeof(kNullParams), kOctets, sizeof(kOctets), NULL,
+                            0) == ASN1_OK);
+
+        /* signedAttrs / unsignedAttrs 必须是非空 SET OF Attribute。 */
+        ASN1_TEST_CHECK(asn1_cms_builder_add_signer(
+                            builder, 1, ASN1_CMS_SID_SUBJECT_KEY_IDENTIFIER,
+                            kOctets, sizeof(kOctets), NULL, 0,
+                            kSha256Oid, NULL, 0, kEmptySet, sizeof(kEmptySet),
+                            kRsaEncryptionOid, kNullParams,
+                            sizeof(kNullParams), kOctets, sizeof(kOctets), NULL,
+                            0) == ASN1_E_INVALID_VALUE);
+        ASN1_TEST_CHECK(asn1_cms_builder_add_signer(
+                            builder, 1, ASN1_CMS_SID_SUBJECT_KEY_IDENTIFIER,
+                            kOctets, sizeof(kOctets), NULL, 0,
+                            kSha256Oid, NULL, 0, kIntSet, sizeof(kIntSet),
+                            kRsaEncryptionOid, kNullParams,
+                            sizeof(kNullParams), kOctets, sizeof(kOctets), NULL,
+                            0) == ASN1_E_INVALID_VALUE);
+        ASN1_TEST_CHECK(asn1_cms_builder_add_signer(
+                            builder, 1, ASN1_CMS_SID_SUBJECT_KEY_IDENTIFIER,
+                            kOctets, sizeof(kOctets), NULL, 0,
+                            kSha256Oid, NULL, 0, kAttributeSet,
+                            sizeof(kAttributeSet), kRsaEncryptionOid,
+                            kNullParams, sizeof(kNullParams), kOctets,
+                            sizeof(kOctets), kEmptySet,
+                            sizeof(kEmptySet)) == ASN1_E_INVALID_VALUE);
+        ASN1_TEST_CHECK(asn1_cms_builder_add_signer(
+                            builder, 1, ASN1_CMS_SID_SUBJECT_KEY_IDENTIFIER,
+                            kOctets, sizeof(kOctets), NULL, 0,
+                            kSha256Oid, NULL, 0, kAttributeSet,
+                            sizeof(kAttributeSet), kRsaEncryptionOid,
+                            kNullParams, sizeof(kNullParams), kOctets,
+                            sizeof(kOctets), kAttributeSet,
+                            sizeof(kAttributeSet)) == ASN1_OK);
+    }
+
     asn1_cms_builder_destroy(builder);
     asn1_cms_builder_destroy(NULL);
     return 0;

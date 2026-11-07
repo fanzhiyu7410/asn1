@@ -13,7 +13,7 @@
 | `fuzz_asn1c` | asn1c 词法/语法/语义/描述表生成 | — |
 | `fuzz_pkix_open` | `asn1_pkix_certificate_open` + 全部只读访问器 / `find` 路径 | PKIX 表 |
 | `fuzz_pkcs_open` | PKCS#1/#8/#10 五个结构 open + 全部只读访问器 | 各模块表 |
-| `fuzz_cms_open` | `ContentInfo` / `SignedData` open + 全部只读访问器 | CMS 表 |
+| `fuzz_cms_open` | `ContentInfo` / `SignedData` open + 全部只读访问器；builder 单 TLV 入口、signer 追加与编码 | CMS 表 |
 
 模块 harness 对带下标的访问器统一按 `0` / `count` / `SIZE_MAX` 三个值探测，并覆盖 `close(NULL)`、open 参数边界与 NULL 输出参数；`fuzz_walk` 同时探测 `asn1_node_child_at` 的同组下标边界。
 

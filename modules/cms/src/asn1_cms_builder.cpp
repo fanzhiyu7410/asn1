@@ -19,6 +19,7 @@
 
 #include "cms_tables.h"
 
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 
@@ -104,6 +105,9 @@ char *copyText(const char *text)
         return nullptr;
     }
     const size_t length = std::strlen(text);
+    if (length == SIZE_MAX) {
+        return nullptr;
+    }
     char *copy = static_cast<char *>(std::malloc(length + 1));
     if (copy == nullptr) {
         return nullptr;
@@ -112,19 +116,32 @@ char *copyText(const char *text)
     return copy;
 }
 
+/* 确保动态数组能容纳 count + 1 个元素；容量按 4/8/16… 增长。 */
+template <typename T>
+bool ensureCapacity(T **array, size_t count, size_t *capacity)
+{
+    if (count < *capacity) {
+        return true;
+    }
+    const size_t next = *capacity == 0 ? 4 : *capacity * 2;
+    if (next <= *capacity || next > SIZE_MAX / sizeof(T)) {
+        return false;
+    }
+    void *grown = std::realloc(*array, next * sizeof(T));
+    if (grown == nullptr) {
+        return false;
+    }
+    *array = static_cast<T *>(grown);
+    *capacity = next;
+    return true;
+}
+
 /* 追加一个字节切片到动态数组；返回 false 表示分配失败。 */
 bool appendSpan(byte_span **array, size_t *count, size_t *capacity,
                 const uint8_t *data, size_t size)
 {
-    if (*count == *capacity) {
-        const size_t next =
-            *capacity == 0 ? 4 : *capacity * 2;
-        void *grown = std::realloc(*array, next * sizeof(byte_span));
-        if (grown == nullptr) {
-            return false;
-        }
-        *array = static_cast<byte_span *>(grown);
-        *capacity = next;
+    if (!ensureCapacity(array, *count, capacity)) {
+        return false;
     }
     uint8_t *copy = copyBytes(data, size);
     if (copy == nullptr) {
@@ -206,6 +223,28 @@ asn1_err_t validateSingleDer(asn1_ctx_t *ctx, const uint8_t *tlv, size_t size,
     return ASN1_OK;
 }
 
+bool rootMatches(const der_root &root, asn1_tag_class_t tag_class,
+                 uint32_t tag_number, int constructed)
+{
+    return root.tag_class == tag_class && root.tag_number == tag_number &&
+           root.constructed == constructed;
+}
+
+/* 校验输入是单个规范 DER TLV，且根标签符合预期。 */
+asn1_err_t validateSingleDerRoot(asn1_ctx_t *ctx, const uint8_t *tlv,
+                                 size_t size, asn1_tag_class_t tag_class,
+                                 uint32_t tag_number, int constructed)
+{
+    der_root root;
+    asn1_err_t rc = validateSingleDer(ctx, tlv, size, &root);
+    if (rc != ASN1_OK) {
+        return rc;
+    }
+    return rootMatches(root, tag_class, tag_number, constructed)
+               ? ASN1_OK
+               : ASN1_E_INVALID_VALUE;
+}
+
 /* 校验点分十进制 OID：借一次构树调用，保持与核心一致的判定。 */
 asn1_err_t validateOid(asn1_ctx_t *ctx, const char *oid)
 {
@@ -226,15 +265,16 @@ asn1_err_t validateOid(asn1_ctx_t *ctx, const char *oid)
     return rc;
 }
 
-/* 校验输入为完整 SET OF TLV，并把外层 0x31 改写成 rewrittenTag。 */
+/*
+ * 校验输入为完整 SET OF Attribute，并把外层 0x31 改写成 rewrittenTag。
+ * RFC 5652 的 signedAttrs / unsignedAttrs 为 SIZE (1..MAX)，因此空集合
+ * 与元素不是 SEQUENCE 的输入按结构错误拒绝。
+ */
 asn1_err_t validateAndRewriteSet(asn1_ctx_t *ctx, const uint8_t *tlv,
                                  size_t size, uint8_t rewrittenTag,
                                  byte_span *out)
 {
     der_root root;
-    root.tag_class = ASN1_TAG_UNIVERSAL;
-    root.tag_number = 0;
-    root.constructed = 0;
     asn1_err_t rc = validateSingleDer(ctx, tlv, size, &root);
     if (rc != ASN1_OK) {
         return rc;
@@ -243,6 +283,36 @@ asn1_err_t validateAndRewriteSet(asn1_ctx_t *ctx, const uint8_t *tlv,
         root.constructed == 0) {
         return ASN1_E_INVALID_VALUE;
     }
+
+    asn1_decode_options_t options;
+    asn1_decode_options_init(&options);
+    options.encoding = ASN1_ENCODING_DER;
+    options.flags = ASN1_DECODE_COPY_INPUT;
+    asn1_doc_t *doc = nullptr;
+    size_t consumed = 0;
+    rc = asn1_decode_buffer(ctx, tlv, size, &options, &doc, &consumed);
+    if (rc != ASN1_OK) {
+        return rc;
+    }
+    const asn1_node_t *root_node = asn1_doc_root(doc);
+    const size_t child_count = asn1_node_child_count(root_node);
+    if (child_count == 0) {
+        rc = ASN1_E_INVALID_VALUE;
+    }
+    for (size_t i = 0; rc == ASN1_OK && i < child_count; ++i) {
+        const asn1_node_t *child = asn1_node_child_at(root_node, i);
+        if (child == nullptr ||
+            asn1_node_tag_class(child) != ASN1_TAG_UNIVERSAL ||
+            asn1_node_tag_number(child) != kTagSequence ||
+            asn1_node_encoding_form(child) != ASN1_FORM_CONSTRUCTED) {
+            rc = ASN1_E_INVALID_VALUE;
+        }
+    }
+    asn1_doc_destroy(doc);
+    if (rc != ASN1_OK) {
+        return rc;
+    }
+
     uint8_t *copy = copyBytes(tlv, size);
     if (copy == nullptr) {
         return ASN1_E_NOMEM;
@@ -737,17 +807,9 @@ extern "C" asn1_err_t asn1_cms_builder_add_digest_algorithm(
         }
     }
 
-    if (builder->digest_count == builder->digest_capacity) {
-        const size_t next = builder->digest_capacity == 0
-                                ? 4
-                                : builder->digest_capacity * 2;
-        void *grown =
-            std::realloc(builder->digests, next * sizeof(alg_entry));
-        if (grown == nullptr) {
-            return ASN1_E_NOMEM;
-        }
-        builder->digests = static_cast<alg_entry *>(grown);
-        builder->digest_capacity = next;
+    if (!ensureCapacity(&builder->digests, builder->digest_count,
+                        &builder->digest_capacity)) {
+        return ASN1_E_NOMEM;
     }
 
     alg_entry entry;
@@ -859,9 +921,18 @@ extern "C" asn1_err_t asn1_cms_builder_add_certificate(
     if (builder == nullptr) {
         return ASN1_E_INVALID_ARG;
     }
-    asn1_err_t rc = validateSingleDer(builder->ctx, tlv, tlv_size, nullptr);
+    der_root root;
+    asn1_err_t rc = validateSingleDer(builder->ctx, tlv, tlv_size, &root);
     if (rc != ASN1_OK) {
         return rc;
+    }
+    /* CertificateChoices：certificate SEQUENCE，或 [0..3] IMPLICIT 备选。 */
+    const bool certificate =
+        rootMatches(root, ASN1_TAG_UNIVERSAL, kTagSequence, 1);
+    const bool alternate = root.tag_class == ASN1_TAG_CONTEXT &&
+                           root.constructed == 1 && root.tag_number <= 3;
+    if (!certificate && !alternate) {
+        return ASN1_E_INVALID_VALUE;
     }
     return appendSpan(&builder->certs, &builder->cert_count,
                       &builder->cert_capacity, tlv, tlv_size)
@@ -876,9 +947,16 @@ extern "C" asn1_err_t asn1_cms_builder_add_crl(asn1_cms_builder_t *builder,
     if (builder == nullptr) {
         return ASN1_E_INVALID_ARG;
     }
-    asn1_err_t rc = validateSingleDer(builder->ctx, tlv, tlv_size, nullptr);
+    der_root root;
+    asn1_err_t rc = validateSingleDer(builder->ctx, tlv, tlv_size, &root);
     if (rc != ASN1_OK) {
         return rc;
+    }
+    /* RevocationInfoChoice：crl CertificateList SEQUENCE，或 other [1]。 */
+    const bool crl = rootMatches(root, ASN1_TAG_UNIVERSAL, kTagSequence, 1);
+    const bool other = rootMatches(root, ASN1_TAG_CONTEXT, kTagContext1, 1);
+    if (!crl && !other) {
+        return ASN1_E_INVALID_VALUE;
     }
     return appendSpan(&builder->crls, &builder->crl_count,
                       &builder->crl_capacity, tlv, tlv_size)
@@ -913,9 +991,12 @@ extern "C" asn1_err_t asn1_cms_builder_add_signer(
 
     /* 先完成全部校验与派生，再一次性复制提交，避免半成品追加。 */
     if (sid_kind == ASN1_CMS_SID_ISSUER_AND_SERIAL) {
-        rc = validateSingleDer(builder->ctx, sid1, sid1_size, nullptr);
+        /* issuer Name = RDNSequence SEQUENCE；serialNumber = INTEGER。 */
+        rc = validateSingleDerRoot(builder->ctx, sid1, sid1_size,
+                                   ASN1_TAG_UNIVERSAL, kTagSequence, 1);
         if (rc == ASN1_OK) {
-            rc = validateSingleDer(builder->ctx, sid2, sid2_size, nullptr);
+            rc = validateSingleDerRoot(builder->ctx, sid2, sid2_size,
+                                       ASN1_TAG_UNIVERSAL, kTagInteger, 0);
         }
     } else {
         if (sid1 == nullptr || sid1_size == 0 || sid2 != nullptr ||
@@ -963,19 +1044,11 @@ extern "C" asn1_err_t asn1_cms_builder_add_signer(
         }
     }
 
-    if (builder->signer_count == builder->signer_capacity) {
-        const size_t next = builder->signer_capacity == 0
-                                ? 4
-                                : builder->signer_capacity * 2;
-        void *grown =
-            std::realloc(builder->signers, next * sizeof(signer_entry));
-        if (grown == nullptr) {
-            std::free(signed_attrs.data);
-            std::free(unsigned_attrs.data);
-            return ASN1_E_NOMEM;
-        }
-        builder->signers = static_cast<signer_entry *>(grown);
-        builder->signer_capacity = next;
+    if (!ensureCapacity(&builder->signers, builder->signer_count,
+                        &builder->signer_capacity)) {
+        std::free(signed_attrs.data);
+        std::free(unsigned_attrs.data);
+        return ASN1_E_NOMEM;
     }
 
     signer_entry entry;
