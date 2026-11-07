@@ -6,7 +6,7 @@
 
 对外只提供 C ABI，内部使用 C++ 实现；标准结构的 ASN.1 定义直接复用公开 RFC 模块，不自创描述格式。`asn1c` 与核心之间共享一份固定的描述表字节契约（`uint8_t[]`、显式小端读取），见[描述表格式](docs/11-描述表格式.md)。
 
-**当前状态：BER/DER 解码、DOM、值读取、schema 模板（运行时注册与描述表加载）、schema 感知解码/编码、`asn1_doc_validate`、`asn1_node_create_any` 公共构树入口（`ASN1_CAP_ANY_OPEN_TYPE` 已置位）、`asn1c` MVP（`.asn1` → 描述表 1.0 的 C 数组/二进制生成，含名称表）、`asn1-pkix` 模块（证书字段访问）、`asn1-cms` 模块（ContentInfo/SignedData 只读访问与 builder 结构构造）已实现；仍未实现：多模块 `IMPORTS`、参数化展开（二期）。** 上下文/内存模型、错误模型与 C ABI 已落地，测试覆盖 BER/DER 解码、编码往返、DOM、上下文/静态池、值读取、schema 与 ANY 节点语义、名称表读写与查询、`asn1c` 端到端生成与加载；**fuzz + 差分测试**已落地（10 个 libFuzzer harness，含 PKIX/PKCS/CMS 模块级 open/accessor harness，+ OpenSSL `asn1parse` 差分，本地构建/短跑/长跑已验证，CI 远端 run 42263533895 已通过）。**嵌入式**：静态池路径已在 Cortex-M4F 交叉构建（`.text` 11,548 / `.data` 1,348 / `.bss` 17,212）与 `qemu-arm` 运行中验证（无堆调用、池耗尽返回 `ASN1_E_STATIC_POOL_EXHAUSTED`），真实板卡未实测；尚不能作为完整可用库发布。
+**当前状态：BER/DER 解码、DOM、值读取、schema 模板（运行时注册与描述表加载）、schema 感知解码/编码、`asn1_doc_validate`、`asn1_node_create_any` 公共构树入口（`ASN1_CAP_ANY_OPEN_TYPE` 已置位）、`asn1c` MVP（`.asn1` → 描述表 1.0 的 C 数组/二进制生成，含名称表）、`asn1-pkix` 模块（证书字段访问）、`asn1-cms` 模块（ContentInfo/SignedData 只读访问与 builder 结构构造）已实现；仍未实现：多模块 `IMPORTS`、参数化展开（二期）。** 上下文/内存模型、错误模型与 C ABI 已落地，测试覆盖 BER/DER 解码、编码往返、DOM、上下文/静态池、值读取、schema 与 ANY 节点语义、名称表读写与查询、`asn1c` 端到端生成与加载；**fuzz + 差分测试**已落地（10 个 libFuzzer harness，含 PKIX/PKCS/CMS 模块级 open/accessor harness，+ OpenSSL `asn1parse` 差分，本地构建/短跑/长跑已验证，CI 远端 run 42340940579 与 42263533895 已通过）。**嵌入式**：静态池路径已在 Cortex-M4F 交叉构建（`.text` 11,548 / `.data` 1,348 / `.bss` 17,212）与 `qemu-arm` 运行中验证（无堆调用、池耗尽返回 `ASN1_E_STATIC_POOL_EXHAUSTED`），真实板卡未实测；尚不能作为完整可用库发布。
 
 ## 分层
 
@@ -161,7 +161,7 @@ ANY 字段（如 `algorithmIdentifier.parameters`）只返回原始 TLV，模块
 - 运行时 `asn1_version_check` 只对**主版本不一致**报错，次版本差异视为兼容；可选能力通过 `asn1_version_info_t.capabilities` 与 `asn1_has_capability()` 查询，不按次版本号推断。
 - 版本一致性机制见 [ADR-0010](docs/adr/0010-版本一致性机制.md)。
 
-## 验证状态（2026-11-07，阶段 1 本地验证轮）
+## 验证状态（2026-11-07，阶段 1 验证轮）
 
 只列实测事实；“未实测”不代表不支持。三档含义：**本地实测**（写明平台/工具链/日期）、**未实测**、**不承诺**。当前用例数量与结果以实际 `ctest` 运行摘要为准（本轮 28 条）；未在本轮用例集下复跑的平台按当次基线注明，不把历史通过数当成本轮结论。
 
@@ -182,8 +182,8 @@ ANY 字段（如 `algorithmIdentifier.parameters`）只返回原始 TLV，模块
 | 嵌入式（带 PKIX 描述表 + schema 感知解码） | **本地实测**：最小静态池 **86,880 字节（约 85 KB）**，需外扩 RAM；**约 85 KB 池不适合 RAM 低于 96 KB 的小容量 MCU** |
 | ARM Cortex-M4F 交叉（arm-none-eabi-gcc 14.2.1 + newlib，`ASN1_FREESTANDING=ON`） | **本地实测**：构建/链接通过（`libasn1_static.a` 121,036 字节）；**真实板卡未实测** |
 | 静态池嵌入式用例（ARM32 Linux + qemu-arm 10.2.1） | **本地实测**：返回 0；按 `asn1_ctx_size_for_config` 分配、池耗尽返回 `ASN1_E_STATIC_POOL_EXHAUSTED`、全程 0 次堆调用 |
-| macOS AppleClang（macos-15-intel/macos-15） | **CI 实测**：run 42263533895 六平台 25 个 job 全部通过（attempt 2）；本地无 macOS 机器；本轮新增用例尚未推送 |
-| GitHub Actions 实际触发 | **已通过**：run 42263533895（2026-11-07，六平台 25 个 job，attempt 2） |
+| macOS AppleClang（macos-15-intel/macos-15） | **CI 实测**：run 42340940579 六平台 25 个 job 全部通过；本地无 macOS 机器；阶段 1 新增用例已在该 run 复验 |
+| GitHub Actions 实际触发 | **已通过**：run 42340940579（ci 25/25、sanitizers、fuzz、differential 全部成功）；上一轮 42263533895 亦通过 |
 | fuzz-hardened 认证 | **不承诺**（未做专项抗恶意输入认证；ASan/UBSan/LSan 与 libFuzzer 短跑/长跑仅证明常规鲁棒性，不等于安全认证） |
 | 默认共享+静态配置与构建（含 3 个模块与 `asn1c`） | 通过 |
 | 启用示例、`ASN1_WARNINGS_AS_ERRORS=ON` 的配置与构建 | 通过 |
