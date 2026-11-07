@@ -124,16 +124,20 @@ function(run_consumer_phase phase prefix_dir)
 
     # 运行时库搜索路径按平台取分隔符：Windows 用 PATH（DLL 在 bin/），
     # Unix 用 LD_LIBRARY_PATH/DYLD_LIBRARY_PATH（共享库在 lib/lib64）。
+    # 变量必须加引号展开：Windows 的 PATH 以 ';' 分隔，未加引号会被 CMake
+    # 当成列表拆分，导致 `cmake -E env` 收到多个参数。
     if(WIN32)
       set(consumer_env "PATH=${prefix_dir}/bin;$ENV{PATH}")
+    elseif(APPLE)
+      set(consumer_env
+          "DYLD_LIBRARY_PATH=${prefix_dir}/lib:${prefix_dir}/lib64:$ENV{DYLD_LIBRARY_PATH}")
     else()
       set(consumer_env
-          "LD_LIBRARY_PATH=${prefix_dir}/lib:${prefix_dir}/lib64:$ENV{LD_LIBRARY_PATH}"
-          "DYLD_LIBRARY_PATH=${prefix_dir}/lib:${prefix_dir}/lib64:$ENV{DYLD_LIBRARY_PATH}")
+          "LD_LIBRARY_PATH=${prefix_dir}/lib:${prefix_dir}/lib64:$ENV{LD_LIBRARY_PATH}")
     endif()
 
     execute_process(
-      COMMAND ${CMAKE_COMMAND} -E env ${consumer_env}
+      COMMAND ${CMAKE_COMMAND} -E env "${consumer_env}"
               "${consumer_exe}" "${ASN1_CONSUMER_SAMPLE}"
       RESULT_VARIABLE run_result
     )
