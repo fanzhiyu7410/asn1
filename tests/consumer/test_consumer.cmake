@@ -79,6 +79,11 @@ function(run_consumer_phase phase prefix_dir)
     if(ASN1_CONSUMER_C_COMPILER)
       list(APPEND configure_command -DCMAKE_C_COMPILER=${ASN1_CONSUMER_C_COMPILER})
     endif()
+    # Windows + clang 下 CMake 需要显式资源编译器；父工程已探测到就透传，
+    # 否则独立工程会因找不到 RC 编译器而配置失败。
+    if(ASN1_CONSUMER_RC_COMPILER)
+      list(APPEND configure_command -DCMAKE_RC_COMPILER=${ASN1_CONSUMER_RC_COMPILER})
+    endif()
     if(ASN1_CONSUMER_BUILD_TYPE)
       list(APPEND configure_command -DCMAKE_BUILD_TYPE=${ASN1_CONSUMER_BUILD_TYPE})
     endif()
