@@ -602,9 +602,9 @@ static int build_attribute_cert_choice(asn1_ctx_t *ctx)
     static const uint8_t kSki[4] = {0x01, 0x02, 0x03, 0x04};
     static const uint8_t kSignature[2] = {0xAA, 0xBB};
     /* 本切片的 AttributeCertificateV1/V2 为不透明扩展 SEQUENCE：
-     * [1]/[2] IMPLICIT 空内容。 */
-    static const uint8_t kV1AttrCert[2] = {0xA1, 0x00};
-    static const uint8_t kV2AttrCert[2] = {0xA2, 0x00};
+     * [1]/[2] IMPLICIT，内容非空以同时验证原始 TLV 逐字节保留。 */
+    static const uint8_t kV1AttrCert[5] = {0xA1, 0x03, 0x02, 0x01, 0x01};
+    static const uint8_t kV2AttrCert[5] = {0xA2, 0x03, 0x02, 0x01, 0x02};
 
     asn1_cms_builder_t *builder = NULL;
     asn1_buf_t encoded;
@@ -615,10 +615,11 @@ static int build_attribute_cert_choice(asn1_ctx_t *ctx)
                         builder, kSha256Oid, NULL, 0) == ASN1_OK);
     ASN1_TEST_CHECK(asn1_cms_builder_set_econtent_type(builder, kDataOid) ==
                     ASN1_OK);
-    ASN1_TEST_CHECK(asn1_cms_builder_add_certificate(
-                        builder, kV1AttrCert, sizeof(kV1AttrCert)) == ASN1_OK);
+    /* 逆序输入（先 [2] 后 [1]），输出必须按 DER SET OF 排成 [1]、[2]。 */
     ASN1_TEST_CHECK(asn1_cms_builder_add_certificate(
                         builder, kV2AttrCert, sizeof(kV2AttrCert)) == ASN1_OK);
+    ASN1_TEST_CHECK(asn1_cms_builder_add_certificate(
+                        builder, kV1AttrCert, sizeof(kV1AttrCert)) == ASN1_OK);
     ASN1_TEST_CHECK(asn1_cms_builder_add_signer(
                         builder, 1, ASN1_CMS_SID_SUBJECT_KEY_IDENTIFIER, kSki,
                         sizeof(kSki), NULL, 0, kSha256Oid, NULL, 0, NULL, 0,
