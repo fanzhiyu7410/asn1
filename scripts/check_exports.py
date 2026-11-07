@@ -230,10 +230,15 @@ def symbols_from_dumpbin(path: Path) -> set[str]:
             continue
         if not in_table:
             continue
-        parts = stripped.split()
-        if not parts or not parts[0].isdigit():
+        # Debug DLL 常把导出指向 ILT thunk，行形如
+        #   1 0 000010DC asn1_buf_release = @ILT+215(asn1_buf_release)
+        # 名称是第 4 列；行尾的 = @ILT... 不是符号名。
+        match = re.match(r"^\s*\d+\s+\S+\s+[0-9A-Fa-f]+\s+(\S+)", stripped)
+        if match is None:
             continue
-        name = parts[-1]
+        name = match.group(1)
+        if name.startswith("_asn1_"):
+            name = name[1:]
         if name.startswith("asn1_"):
             symbols.add(name)
     return symbols
