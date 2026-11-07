@@ -13,6 +13,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include <asn1/asn1_build.h>
 #include <asn1/asn1_decode.h>
 #include <asn1/asn1_error.h>
 #include <asn1/asn1_export.h>

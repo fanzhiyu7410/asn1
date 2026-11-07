@@ -19,6 +19,22 @@
 
 /* ---------- 辅助 ---------- */
 
+/* 版本同源：CMake 生成头宏、模块运行时字符串与核心运行时字符串一致。 */
+static int test_module_version(void)
+{
+    const char *runtime = asn1_pkix_version_string();
+    asn1_version_info_t info;
+
+    memset(&info, 0, sizeof(info));
+    info.struct_size = sizeof(info);
+    ASN1_TEST_CHECK(runtime != NULL);
+    ASN1_TEST_CHECK(strcmp(runtime, ASN1_PKIX_VERSION_STRING) == 0);
+    ASN1_TEST_CHECK(asn1_version(&info) == ASN1_OK);
+    ASN1_TEST_CHECK(info.string != NULL);
+    ASN1_TEST_CHECK(strcmp(runtime, info.string) == 0);
+    return 0;
+}
+
 static asn1_ctx_t *make_ctx(void)
 {
     asn1_ctx_config_t config;
@@ -428,6 +444,9 @@ static int test_negative(void)
 
 int main(void)
 {
+    if (test_module_version() != 0) {
+        return 1;
+    }
     if (test_real_certificates() != 0) {
         return 1;
     }

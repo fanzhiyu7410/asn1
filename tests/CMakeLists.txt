@@ -40,6 +40,7 @@ add_subdirectory(support)
 add_subdirectory(embedded)
 add_subdirectory(unit)
 add_subdirectory(c_api)
+add_subdirectory(headers)
 
 # 模块用例依赖模块目标；模块未构建时跳过。
 if(TARGET asn1::pkix::static OR TARGET asn1::pkix::shared)

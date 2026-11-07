@@ -27,6 +27,22 @@ static const char kDataOid[] = "1.2.840.113549.1.7.1";
 static const char kSha256Oid[] = "2.16.840.1.101.3.4.2.1";
 static const char kRsaEncryptionOid[] = "1.2.840.113549.1.1.1";
 
+/* 版本同源：CMake 生成头宏、模块运行时字符串与核心运行时字符串一致。 */
+static int test_module_version(void)
+{
+    const char *runtime = asn1_cms_version_string();
+    asn1_version_info_t info;
+
+    memset(&info, 0, sizeof(info));
+    info.struct_size = sizeof(info);
+    ASN1_TEST_CHECK(runtime != NULL);
+    ASN1_TEST_CHECK(strcmp(runtime, ASN1_CMS_VERSION_STRING) == 0);
+    ASN1_TEST_CHECK(asn1_version(&info) == ASN1_OK);
+    ASN1_TEST_CHECK(info.string != NULL);
+    ASN1_TEST_CHECK(strcmp(runtime, info.string) == 0);
+    return 0;
+}
+
 static asn1_ctx_t *make_ctx(void)
 {
     asn1_ctx_config_t config;
@@ -548,6 +564,9 @@ static int test_negative(void)
 
 int main(void)
 {
+    if (test_module_version() != 0) {
+        return 1;
+    }
     if (test_attached() != 0) {
         return 1;
     }
