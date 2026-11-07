@@ -6,7 +6,7 @@
 
 对外只提供 C ABI，内部使用 C++ 实现；标准结构的 ASN.1 定义直接复用公开 RFC 模块，不自创描述格式。`asn1c` 与核心之间共享一份固定的描述表字节契约（`uint8_t[]`、显式小端读取），见[描述表格式](docs/11-描述表格式.md)。
 
-**当前状态：BER/DER 解码、DOM、值读取、schema 模板（运行时注册与描述表加载）、schema 感知解码/编码、`asn1_doc_validate`、`asn1_node_create_any` 公共构树入口（`ASN1_CAP_ANY_OPEN_TYPE` 已置位）、`asn1c` MVP（`.asn1` → 描述表 1.0 的 C 数组/二进制生成，含名称表）、`asn1-pkix` 模块（证书字段访问）、`asn1-pkcs` 模块（PKCS#1/#8/#10/#12 只读结构访问）、`asn1-cms` 模块（ContentInfo/SignedData 只读访问与 builder 结构构造）已实现；仍未实现：多模块 `IMPORTS`、参数化展开（二期）。** 上下文/内存模型、错误模型与 C ABI 已落地，测试覆盖 BER/DER 解码、编码往返、DOM、上下文/静态池、值读取、schema 与 ANY 节点语义、名称表读写与查询、`asn1c` 端到端生成与加载；**fuzz + 差分测试**已落地（10 个 libFuzzer harness，含 PKIX/PKCS/CMS 模块级 open/accessor harness，+ OpenSSL `asn1parse` 差分，本地构建/短跑/长跑已验证，CI 远端 run 42340940579 与 42263533895 已通过）。**嵌入式**：静态池路径已在 Cortex-M4F 交叉构建（`.text` 11,548 / `.data` 1,348 / `.bss` 17,212）与 `qemu-arm` 运行中验证（无堆调用、池耗尽返回 `ASN1_E_STATIC_POOL_EXHAUSTED`），真实板卡未实测；尚不能作为完整可用库发布。
+**当前状态：BER/DER 解码、DOM、值读取、schema 模板（运行时注册与描述表加载）、schema 感知解码/编码、`asn1_doc_validate`、`asn1_node_create_any` 公共构树入口（`ASN1_CAP_ANY_OPEN_TYPE` 已置位）、`asn1c` MVP（`.asn1` → 描述表 1.0 的 C 数组/二进制生成，含名称表）、`asn1-pkix` 模块（证书字段访问）、`asn1-pkcs` 模块（PKCS#1/#8/#10/#12 只读结构访问）、`asn1-cms` 模块（ContentInfo/SignedData 只读访问与 builder 结构构造）已实现；仍未实现：多模块 `IMPORTS`、参数化展开（二期）。** 上下文/内存模型、错误模型与 C ABI 已落地，测试覆盖 BER/DER 解码、编码往返、DOM、上下文/静态池、值读取、schema 与 ANY 节点语义、名称表读写与查询、`asn1c` 端到端生成与加载；**fuzz + 差分测试**已落地（10 个 libFuzzer harness，含 PKIX/PKCS/CMS 模块级 open/accessor harness，+ OpenSSL `asn1parse` 差分，本地构建/短跑/长跑已验证，0.1.0 发布轮 CI run 42362375253 六平台 25/25、34 条用例通过）。**嵌入式**：静态池路径已在 Cortex-M4F 交叉构建（`.text` 11,548 / `.data` 1,348 / `.bss` 17,212）与 `qemu-arm` 运行中验证（无堆调用、池耗尽返回 `ASN1_E_STATIC_POOL_EXHAUSTED`），真实板卡未实测。**发布状态**：`v0.1.0` 已于 2026-11-07 发布（[Release](https://github.com/fanzhiyu7410/asn1/releases/tag/v0.1.0)）。0.1.0 为结构层只读/构造版本，不做密码学语义（不验签、不摘要、不解密、不校验证书链），也不构成生产级认证。
 
 ## 分层
 
@@ -165,11 +165,13 @@ ANY 字段（如 `algorithmIdentifier.parameters`）只返回原始 TLV，模块
 
 只列实测事实；“未实测”不代表不支持。三档含义：**本地实测**（写明平台/工具链/日期）、**未实测**、**不承诺**。用例数与能力位不手写：用例数由 `python scripts/report_status.py --build-dir <构建目录>`（内部执行 `ctest -N`）派生，能力位取自构建目录生成的 `asn1_version.h` 中 `ASN1_CAP_*`，运行时实际置位由 `test_version_abi` 在 ctest 中断言。下表数字为本轮构建的派生结果；未在本轮用例集下复跑的平台按当次基线注明，不把历史通过数当成本轮结论。
 
+**0.1.0 发布轮证据**：`ci` run 42362375253（六平台 25/25 job、34 条用例）、`sanitizers` run 42362375225、`fuzz` run 42362375271、`differential` run 42362375277，全部成功。本节其余位置出现的 `42340940579` 等旧号为 0.1.0 之前的历史记录（当次 28 条用例）。
+
 | 验证项 | 结果 |
 | --- | --- |
 | Windows 本机 MinGW-W64 GCC 13.2.0（2026-11-07） | **本地实测**（2026-11-07 四配置复测）：`build-mingw-Debug-shared` / `build-mingw-Debug-static` / `build-mingw-Release-shared` / `build-mingw-Release-static` 各 **34/34** 通过（含 `test_pkcs12_structures`、`test_struct_size`、`test_build_any`、`test_cms_builder`、`test_pkcs_pool`、`test_cms_pool`、四个 `test_consumer_*`）；`test_asn1c_cli` 缺失输入退出码 3；逐配置摘要见 [测试与验证](docs/07-测试与验证.md) 9.4 |
 | ABI 导出符号守卫（共享库） | **本地实测**（MinGW-W64 GCC 13.2.0，2026-11-07）：`scripts/check_exports.py` 在 `build-pkcs-final` 与 `build-mingw-Release-shared` 上四模块全部一致（68/11/70/43）；临时删除基线符号时按预期以退出码 1 报错 |
-| Windows 本机 MSVC 19.51 x64（2026-11-07） | **本地实测**：Debug 全量 **34/34** 通过（29.07 s），Release 构建通过 |
+| Windows 本机 MSVC 19.51 x64（2026-11-07） | **本地实测**：Debug 全量 **34/34** 通过（29.07 s）；本地 Release 仅构建（不跑 ctest），CI 上 MSVC Debug/Release 均执行全量 ctest |
 | WSL2 Ubuntu 26.04 + GCC 15.2.0（2026-11-06 基线） | **本地实测**（当次用例集）：共享/静态各一轮通过；PKCS#12、CMS 写补强与 `AttributeCertificate` 收口节点未复跑 |
 | WSL2 Ubuntu 26.04 + Clang 21.1.8（2026-11-06 基线） | **本地实测**（当次用例集）：共享/静态各一轮通过；PKCS#12、CMS 写补强与 `AttributeCertificate` 收口节点未复跑 |
 | ASan + UBSan（Clang 21.1.8，全量插桩，RelWithDebInfo） | **本地实测**（2026-11-07）：全量 **34/34** 通过（12.59 s）；Windows 下需把 `C:\Program Files\LLVM\lib\clang\21\lib\windows` 加入 `PATH` 才能运行插桩产物 |
@@ -184,8 +186,8 @@ ANY 字段（如 `algorithmIdentifier.parameters`）只返回原始 TLV，模块
 | 嵌入式（PKCS / CMS 模块最小静态池） | **本地实测**（宿主 MinGW Release 共享，`ctx` 固定开销 448 字节）：PKCS **11,648 字节**（池耗尽点 6,048）、CMS **53,536 字节**（池耗尽点 26,992）；池耗尽返回 `ASN1_E_STATIC_POOL_EXHAUSTED`，不崩溃；见 [构建与移植](docs/06-构建与移植.md) 6.4 |
 | ARM Cortex-M4F 交叉（arm-none-eabi-gcc 14.2.1 + newlib，`ASN1_FREESTANDING=ON`） | **本地实测**：构建/链接通过（`libasn1_static.a` 121,036 字节）；**真实板卡未实测** |
 | 静态池嵌入式用例（ARM32 Linux + qemu-arm 10.2.1） | **本地实测**：返回 0；按 `asn1_ctx_size_for_config` 分配、池耗尽返回 `ASN1_E_STATIC_POOL_EXHAUSTED`、全程 0 次堆调用 |
-| macOS AppleClang（macos-15-intel/macos-15） | **CI 实测**：run 42340940579 六平台 25 个 job 全部通过；本地无 macOS 机器；阶段 1 新增用例已在该 run 复验 |
-| GitHub Actions 实际触发 | **已通过**：run 42340940579（ci 25/25、sanitizers、fuzz、differential 全部成功）；上一轮 42263533895 亦通过 |
+| macOS AppleClang（macos-15-intel/macos-15） | **CI 实测**：0.1.0 发布轮 run 42362375253 六平台 25 个 job 全部通过（34 条用例）；本地无 macOS 机器。旧号 run 42340940579 为 0.1.0 之前的历史记录（当次 28 条用例） |
+| GitHub Actions 实际触发 | **已通过**：0.1.0 发布轮 ci run 42362375253（25/25）、sanitizers 42362375225、fuzz 42362375271、differential 42362375277 全部成功；旧号 42340940579 / 42263533895 为 0.1.0 之前的历史记录（当次 28 条 / 27 条用例） |
 | fuzz-hardened 认证 | **不承诺**（未做专项抗恶意输入认证；ASan/UBSan/LSan 与 libFuzzer 短跑/长跑仅证明常规鲁棒性，不等于安全认证） |
 | 默认共享+静态配置与构建（含 3 个模块与 `asn1c`） | 通过 |
 | 启用示例、`ASN1_WARNINGS_AS_ERRORS=ON` 的配置与构建 | 通过 |
