@@ -161,7 +161,7 @@ ANY 字段（如 `algorithmIdentifier.parameters`）只返回原始 TLV，模块
 - 运行时 `asn1_version_check` 只对**主版本不一致**报错，次版本差异视为兼容；可选能力通过 `asn1_version_info_t.capabilities` 与 `asn1_has_capability()` 查询，不按次版本号推断。
 - 版本一致性机制见 [ADR-0010](docs/adr/0010-版本一致性机制.md)。
 
-## 验证状态（2026-11-07，CMS 结构构造轮）
+## 验证状态（2026-11-07，阶段 1 本地验证轮）
 
 只列实测事实；“未实测”不代表不支持。三档含义：**本地实测**（写明平台/工具链/日期）、**未实测**、**不承诺**。当前用例数量与结果以实际 `ctest` 运行摘要为准（本轮 28 条）；未在本轮用例集下复跑的平台按当次基线注明，不把历史通过数当成本轮结论。
 
@@ -182,7 +182,7 @@ ANY 字段（如 `algorithmIdentifier.parameters`）只返回原始 TLV，模块
 | 嵌入式（带 PKIX 描述表 + schema 感知解码） | **本地实测**：最小静态池 **86,880 字节（约 85 KB）**，需外扩 RAM；**约 85 KB 池不适合 RAM 低于 96 KB 的小容量 MCU** |
 | ARM Cortex-M4F 交叉（arm-none-eabi-gcc 14.2.1 + newlib，`ASN1_FREESTANDING=ON`） | **本地实测**：构建/链接通过（`libasn1_static.a` 121,036 字节）；**真实板卡未实测** |
 | 静态池嵌入式用例（ARM32 Linux + qemu-arm 10.2.1） | **本地实测**：返回 0；按 `asn1_ctx_size_for_config` 分配、池耗尽返回 `ASN1_E_STATIC_POOL_EXHAUSTED`、全程 0 次堆调用 |
-| macOS AppleClang（macos-13/14） | **未实测**（无 macOS 机器）；`.github/workflows/ci.yml` 已就绪 |
+| macOS AppleClang（macos-15-intel/macos-15） | **CI 实测**：run 42263533895 六平台 25 个 job 全部通过（attempt 2）；本地无 macOS 机器；本轮新增用例尚未推送 |
 | GitHub Actions 实际触发 | **已通过**：run 42263533895（2026-11-07，六平台 25 个 job，attempt 2） |
 | fuzz-hardened 认证 | **不承诺**（未做专项抗恶意输入认证；ASan/UBSan/LSan 与 libFuzzer 短跑/长跑仅证明常规鲁棒性，不等于安全认证） |
 | 默认共享+静态配置与构建（含 3 个模块与 `asn1c`） | 通过 |
@@ -215,7 +215,7 @@ libFuzzer 短跑（各 60 s，`-max_len` 二进制 8192 / 文本 4096，ASan+UBS
 
 批量基准（`ASN1_BUILD_BENCHMARKS=OFF` 默认关闭，不进 CTest）：`asn1_pkix_certificate_open + close`，RSA 自签证书 865 字节。MSVC 19.51 x64 Release：1,000 次 918 ms（918 µs/次）、10,000 次 8,505 ms（850.5 µs/次），峰值堆 73,260 字节；WSL2 GCC 15.2.0 Release：1,000 次 368 ms、10,000 次 5,119 ms，峰值堆 73,284 字节。每次 open 加载一次 24 KB 描述表并构建上下文级 schema，生命周期到 close，无全局缓存；该数字仅用于评估是否需要核心 ctx 级 schema 缓存，本轮不改核心 ABI。五组模块 `open + close`（PKIX/PKCS#8/PKCS#1/PKCS#10/CMS）的 `count/min/median/p95/mean` 与峰值堆基线见[性能基线](docs/性能基线.md)，由 `ASN1_BUILD_BENCHMARKS=ON` 构建的 `bench_module_open` 生成。
 
-尚未验证：macOS 实机、真实 Cortex-M4 板卡运行、多模块 `IMPORTS`/参数化（二期）。fuzz/差分已本地构建并短跑+长跑验证（无崩溃/泄漏）。当前库仅实现上述子集，不可用于生产。
+尚未验证：本地 macOS 实机复现（CI 已通过）、真实 Cortex-M4 板卡运行、多模块 `IMPORTS`/参数化（二期）。fuzz/差分已本地构建并短跑+长跑验证（无崩溃/泄漏）。当前库仅实现上述子集，不可用于生产。
 
 ## 许可证
 
