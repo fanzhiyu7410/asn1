@@ -2,6 +2,23 @@
 
 本文件记录对外可见的版本变更；格式参考 Keep a Changelog，版本号遵循语义化版本。
 
+## [0.1.1] - 2026-11-07
+
+卫生批，只改文档与测试：**无公共 ABI 变更**（不新增、不删除、不改名符号，不变更错误码语义），核心与 `asn1-pkix`/`asn1-pkcs`/`asn1-cms` 版本同步升为 0.1.1；`tools/asn1c` 独立版本保持 0.1.0。
+
+### 文档
+
+- CI 与状态同步：README 与 `docs/06`/`docs/07` 统一引用 0.1.0 发布轮证据（ci 42362375253、sanitizers 42362375225、fuzz 42362375271、differential 42362375277），旧 run 保留并标注为 0.1.0 之前的历史记录（当次 28 条用例）；补充 MSVC 在 CI 上 Debug/Release 均跑全量 ctest、`fuzz-longrun-der` 仅 schedule/workflow_dispatch 触发。
+- PKCS#12 前缀例外：记录 `asn1_pkcs12_*`（25 个）随 0.1.0 冻结、PKCS#1/#8/#10 使用 `asn1_pkcs_*`（45 个）；未来统一只能在 0.2.0 新增别名并保留旧符号至少一个次版本周期。
+- 阶段 1 验收证据索引：逆序 SET OF、tag number 31/128/16384 解码往返、`format_version` 四种非法输入、性能基线，各给文件与用例位置。
+- DER 口径收窄：无 schema 编码时普通节点仍按通用 DER 重建，只有 ANY/保留 TLV 原样回写；schema 感知编码校验保留 TLV，非 DER 返回 `ASN1_E_NON_CANONICAL`。
+- ANY 深度口径：schema 感知 DER 编码校验保留 TLV 时复用上下文 `max_depth`；`asn1_doc_validate` 的 `max_depth` 只约束 schema 绑定深度，不遍历 ANY 内层。
+
+### 测试
+
+- `test_build_any` 新增深度回归：默认预算下 70 层嵌套 ANY 返回 `ASN1_E_DEPTH_LIMIT`，3 层编码成功。
+- `test_pkcs_pool` / `test_cms_pool`：ctx 创建失败回传真实错误码；耗尽断言改为“池意外成功即判失败”；新增 `min_pool - 1` 必失败、`min_pool` 必成功边界组。
+
 ## [0.1.0] - 2026-11-07
 
 首个 0.1.0 版本，核心与三个标准模块同源发布：版本宏由 CMake `project(... VERSION 0.1.0)` 生成到 `asn1_version.h` 与各模块 `<模块>_version.h`，运行时 `asn1_version` 与模块 `version_string` 一致。
