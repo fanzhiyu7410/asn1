@@ -33,9 +33,10 @@ static int try_pool(size_t size, asn1_err_t *out_error)
     config.static_pool = g_pool.bytes;
     config.static_pool_size = size;
 
-    if (asn1_ctx_create(&config, &ctx) != ASN1_OK) {
+    const asn1_err_t create_err = asn1_ctx_create(&config, &ctx);
+    if (create_err != ASN1_OK) {
         if (out_error != NULL) {
-            *out_error = ASN1_E_STATIC_POOL_EXHAUSTED;
+            *out_error = create_err;
         }
         return 0;
     }
@@ -101,14 +102,31 @@ int main(void)
     if (exhausted_pool >= min_pool) {
         exhausted_pool = min_pool - 1;
     }
-    if (!try_pool(exhausted_pool, &err) &&
+    if (try_pool(exhausted_pool, &err) ||
         err != ASN1_E_STATIC_POOL_EXHAUSTED) {
-        fprintf(stderr, "FAIL: 池耗尽返回 %d，期望 %d\n", (int)err,
+        fprintf(stderr, "FAIL: 池耗尽未失败或返回 %d，期望 %d\n", (int)err,
                 (int)ASN1_E_STATIC_POOL_EXHAUSTED);
         return 1;
     }
     printf("pool exhausted at %zu bytes -> ASN1_E_STATIC_POOL_EXHAUSTED\n",
            exhausted_pool);
+
+    /* 边界：min_pool - 1 必须失败，min_pool 必须成功。 */
+    if (min_pool > ctx_floor) {
+        err = ASN1_OK;
+        if (try_pool(min_pool - 1, &err) ||
+            err != ASN1_E_STATIC_POOL_EXHAUSTED) {
+            fprintf(stderr, "FAIL: min_pool - 1 未失败或返回 %d\n", (int)err);
+            return 1;
+        }
+        err = ASN1_OK;
+        if (!try_pool(min_pool, &err)) {
+            fprintf(stderr, "FAIL: min_pool 失败，返回 %d\n", (int)err);
+            return 1;
+        }
+        printf("boundary: %zu bytes FAIL, %zu bytes OK\n", min_pool - 1,
+               min_pool);
+    }
     printf("OK\n");
     return 0;
 }
