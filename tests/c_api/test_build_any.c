@@ -97,6 +97,84 @@ static asn1_schema_t *make_algorithm_schema(asn1_ctx_t *ctx)
     return schema;
 }
 
+/* 由内向外构造 layers 层 SEQUENCE 包裹的 INTEGER 5，返回总字节数。 */
+static size_t wrap_nested_sequences(uint8_t *out, size_t capacity,
+                                    size_t layers)
+{
+    size_t size = 3;
+    if (capacity < size) {
+        return 0;
+    }
+    out[0] = 0x02;
+    out[1] = 0x01;
+    out[2] = 0x05;
+    for (size_t i = 0; i < layers; ++i) {
+        const size_t header = size < 0x80 ? 2 : (size < 0x100 ? 3 : 4);
+        if (size + header > capacity) {
+            return 0;
+        }
+        memmove(out + header, out, size);
+        out[0] = 0x30;
+        if (header == 2) {
+            out[1] = (uint8_t)size;
+        } else if (header == 3) {
+            out[1] = 0x81;
+            out[2] = (uint8_t)size;
+        } else {
+            out[1] = 0x82;
+            out[2] = (uint8_t)(size >> 8);
+            out[3] = (uint8_t)size;
+        }
+        size += header;
+    }
+    return size;
+}
+
+/* 把原始 TLV 放进 SEQUENCE { OID, ANY } 并按 schema 编码，返回编码错误码。 */
+static asn1_err_t encode_any_with_schema(asn1_ctx_t *ctx, const uint8_t *tlv,
+                                         size_t size)
+{
+    asn1_schema_t *schema = make_algorithm_schema(ctx);
+    if (schema == NULL) {
+        return ASN1_E_INVALID_STATE;
+    }
+    asn1_doc_t *doc = NULL;
+    if (asn1_doc_create(ctx, &doc) != ASN1_OK) {
+        asn1_schema_destroy(schema);
+        return ASN1_E_INVALID_STATE;
+    }
+    asn1_node_t *root = NULL;
+    asn1_node_t *oid = NULL;
+    asn1_node_t *any = NULL;
+    asn1_err_t rc = asn1_node_create(doc, NULL, ASN1_TAG_UNIVERSAL, 16, 1, &root);
+    if (rc == ASN1_OK) {
+        rc = asn1_node_create(doc, root, ASN1_TAG_UNIVERSAL, 6, 0, &oid);
+    }
+    if (rc == ASN1_OK) {
+        rc = asn1_node_set_oid(oid, "1.2.840.113549.1.1.1");
+    }
+    if (rc == ASN1_OK) {
+        rc = asn1_node_create_any(doc, root, tlv, size, &any);
+    }
+    if (rc == ASN1_OK) {
+        rc = asn1_doc_seal(doc);
+    }
+    asn1_encode_options_t options;
+    asn1_encode_options_init(&options);
+    options.schema = schema;
+    asn1_buf_t buf;
+    memset(&buf, 0, sizeof(buf));
+    if (rc == ASN1_OK) {
+        rc = asn1_encode_buffer(ctx, doc, &options, &buf);
+    }
+    if (buf.data != NULL) {
+        (void)asn1_buf_release(ctx, &buf);
+    }
+    asn1_doc_destroy(doc);
+    asn1_schema_destroy(schema);
+    return rc;
+}
+
 static int encode_compare(asn1_ctx_t *ctx, asn1_doc_t *doc,
                           const asn1_schema_t *schema,
                           const uint8_t *expected, size_t expected_size)
@@ -402,6 +480,32 @@ int main(void)
         asn1_doc_destroy(doc);
         asn1_schema_destroy(schema);
         asn1_ctx_destroy(shallow_ctx);
+    }
+
+    /* ===== 7b. ANY 内层深度复用上下文 max_depth ===== */
+    {
+        asn1_ctx_config_t config;
+        asn1_ctx_config_init(&config); /* 默认 max_depth = 64 */
+        asn1_ctx_t *ctx = NULL;
+        ASN1_TEST_CHECK(asn1_ctx_create(&config, &ctx) == ASN1_OK);
+
+        /* 70 层 SEQUENCE 超过默认 64：schema 编码校验保留 TLV 返回 DEPTH_LIMIT。 */
+        uint8_t deep[512];
+        const size_t deep_size =
+            wrap_nested_sequences(deep, sizeof(deep), 70);
+        ASN1_TEST_CHECK(deep_size > 0);
+        ASN1_TEST_CHECK(encode_any_with_schema(ctx, deep, deep_size) ==
+                        ASN1_E_DEPTH_LIMIT);
+
+        /* 3 层嵌套在默认预算内：编码成功。 */
+        uint8_t shallow[64];
+        const size_t shallow_size =
+            wrap_nested_sequences(shallow, sizeof(shallow), 3);
+        ASN1_TEST_CHECK(shallow_size > 0);
+        ASN1_TEST_CHECK(encode_any_with_schema(ctx, shallow, shallow_size) ==
+                        ASN1_OK);
+
+        asn1_ctx_destroy(ctx);
     }
 
     /* ===== 8. 负例：空输入、截断、尾随、不定长、畸形标签/长度 ===== */

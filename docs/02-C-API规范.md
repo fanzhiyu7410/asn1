@@ -376,7 +376,7 @@ WrappedChoice ::= [0] EXPLICIT ExampleChoice
 - ANY 节点不可改写：`asn1_doc_set_node_content` 对 ANY 返回 `ASN1_E_INVALID_STATE`。
 - 编码：无 schema 的通用编码器按节点保存的 TLV 原样写回（此时节点 TLV 已是含包装的完整形态，不重复加包装）；schema 感知编码对 EXPLICIT ANY 按 schema 重新加外层包装，对无包装 ANY 写回原始 TLV。**schema 感知 DER 编码要求这些保留 TLV 是规范 DER**：BER 不定长、非最短长度、长形式标签表示小 tag number、构造字符串、非规范基本值、未排序 `SET`/`SET OF` 等返回 `ASN1_E_NON_CANONICAL`，不做隐式重新编码；无 schema 通用编码路径仍允许 BER 源原样往返。若节点缺少可用原始 TLV（例如既不是解码节点、也不是 ANY 节点的 runtime 构树节点），编码返回 `ASN1_E_INVALID_STATE`。该错误码是“保留 TLV 与节点状态不一致”的唯一约定值。
 - **runtime 构树 ANY**：`asn1_node_create_any` 接受的原始 TLV 复制进文档 arena 并挂在节点上，因此 `asn1_node_tlv` 对这类节点同样返回完整 TLV，`asn1_node_content` 返回内容切片。其编码行为与解码得到的 ANY 一致：无 schema 通用编码逐字节写回；schema 感知编码按同一套 `ASN1_E_NON_CANONICAL` 规则校验保留 TLV。ANY 节点不建立子节点，`asn1_node_create` 以其为父节点返回 `ASN1_E_INVALID_STATE`。
-- **资源上限与错误分类**：ANY 保留 TLV 的规范性校验与内层遍历使用与解码相同的 `max_depth` 预算（上下文默认，或解码/校验选项收紧后的值）。ANY 内层 TLV 嵌套超限返回 `ASN1_E_DEPTH_LIMIT`；节点数、输入字节数、内存预算超限分别返回 `ASN1_E_NODE_LIMIT`、`ASN1_E_INPUT_LIMIT`、`ASN1_E_MEMORY_LIMIT`/`ASN1_E_STATIC_POOL_EXHAUSTED`。这些资源类失败**不是**“非规范 DER”，不会改写为 `ASN1_E_NON_CANONICAL`。
+- **资源上限与错误分类**：schema 感知 DER 编码校验保留 TLV 时复用上下文 `max_depth`（编码器内部直接使用 `ctx->m_maxDepth`）；`asn1_doc_validate` 的 `max_depth` 只约束 schema 绑定深度，不遍历 ANY 内层。ANY 内层 TLV 嵌套超过上下文 `max_depth`（默认 64）返回 `ASN1_E_DEPTH_LIMIT`；节点数、输入字节数、内存预算超限分别返回 `ASN1_E_NODE_LIMIT`、`ASN1_E_INPUT_LIMIT`、`ASN1_E_MEMORY_LIMIT`/`ASN1_E_STATIC_POOL_EXHAUSTED`。这些资源类失败**不是**“非规范 DER”，不会改写为 `ASN1_E_NON_CANONICAL`。回归用例见 `tests/c_api/test_build_any.c` 第 7b 节：70 层嵌套 ANY 编码返回 `ASN1_E_DEPTH_LIMIT`，3 层成功。
 
 **SEQUENCE 中的消歧规则（封存期强制）**
 
