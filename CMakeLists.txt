@@ -37,6 +37,7 @@ endif()
 
 if(ASN1_BUILD_BENCHMARKS)
   add_subdirectory(benchmarks)
+  add_subdirectory(tests/bench)
 endif()
 
 if(ASN1_BUILD_TESTS)

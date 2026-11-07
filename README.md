@@ -33,7 +33,7 @@
 │  ├─ cms/                 asn1-cms
 │  └─ pkcs/                asn1-pkcs
 ├─ tools/asn1c/            `.asn1` → 描述表 1.0 生成工具（C 数组/二进制）
-├─ tests/                  unit / c_api / asn1c / conformance / support / fuzz
+├─ tests/                  unit / c_api / asn1c / conformance / support / fuzz / bench
 ├─ examples/c              C 消费示例（占位）
 ├─ examples/cpp            C++ 消费示例（占位）
 ├─ cmake/                  构建选项、编译检查、安装导出、包配置模板
@@ -213,7 +213,7 @@ libFuzzer 短跑（各 60 s，`-max_len` 二进制 8192 / 文本 4096，ASan+UBS
 
 断言点静态计数 **2411 处**（宏调用点；循环体内实际执行次数更多）。`tests/` 静态库与共享库配置均注册 **28 个**无第三方依赖的 C 用例（以实际 `ctest` 运行摘要为准，见 [测试与验证](docs/07-测试与验证.md) 9.4），覆盖 `asn1-pkix` 证书打开与字段访问（RSA/RSA-PSS/EC 三张真实证书、ANY 三形态、句柄隔离、负例、安装后共享/静态独立消费）、BER 解码（含不定长）、DER 严格解码、DER 编码往返、DOM 值树、上下文/静态池、值读取、schema 运行时注册与描述表加载、名称表、schema 感知解码与约束求值、`asn1_doc_validate`、schema 感知编码、ANY/开放类型（含 EXPLICIT 包装）、buffer/reader 双路径解码、`asn1c` 端到端（PKIX 69 个具名类型 / 173 条记录 / 6 处 ANY 字段 / 31 条名称记录、CRC32C 自检、负例诊断 9001/9002/9003/9004/9006/9009、RSA/EC 证书 schema 往返）、`asn1-cms` ContentInfo/SignedData 只读访问与 builder 结构构造（5 份样本 decode→重建→编码逐字节一致）与嵌入式静态池最小用例。
 
-批量基准（`ASN1_BUILD_BENCHMARKS=OFF` 默认关闭，不进 CTest）：`asn1_pkix_certificate_open + close`，RSA 自签证书 865 字节。MSVC 19.51 x64 Release：1,000 次 918 ms（918 µs/次）、10,000 次 8,505 ms（850.5 µs/次），峰值堆 73,260 字节；WSL2 GCC 15.2.0 Release：1,000 次 368 ms、10,000 次 5,119 ms，峰值堆 73,284 字节。每次 open 加载一次 24 KB 描述表并构建上下文级 schema，生命周期到 close，无全局缓存；该数字仅用于评估是否需要核心 ctx 级 schema 缓存，本轮不改核心 ABI。
+批量基准（`ASN1_BUILD_BENCHMARKS=OFF` 默认关闭，不进 CTest）：`asn1_pkix_certificate_open + close`，RSA 自签证书 865 字节。MSVC 19.51 x64 Release：1,000 次 918 ms（918 µs/次）、10,000 次 8,505 ms（850.5 µs/次），峰值堆 73,260 字节；WSL2 GCC 15.2.0 Release：1,000 次 368 ms、10,000 次 5,119 ms，峰值堆 73,284 字节。每次 open 加载一次 24 KB 描述表并构建上下文级 schema，生命周期到 close，无全局缓存；该数字仅用于评估是否需要核心 ctx 级 schema 缓存，本轮不改核心 ABI。五组模块 `open + close`（PKIX/PKCS#8/PKCS#1/PKCS#10/CMS）的 `count/min/median/p95/mean` 与峰值堆基线见[性能基线](docs/性能基线.md)，由 `ASN1_BUILD_BENCHMARKS=ON` 构建的 `bench_module_open` 生成。
 
 尚未验证：macOS 实机、真实 Cortex-M4 板卡运行、多模块 `IMPORTS`/参数化（二期）。fuzz/差分已本地构建并短跑+长跑验证（无崩溃/泄漏）。当前库仅实现上述子集，不可用于生产。
 
