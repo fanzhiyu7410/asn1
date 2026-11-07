@@ -30,6 +30,12 @@ PKCS 系列标准结构模块（RFC 8017 / RFC 5208 / RFC 2986 / RFC 7292），�
 
 `asn1-pkcs` 是独立包，可独立安装后用 `find_package(asn1-pkcs CONFIG REQUIRED)` 消费。
 
+### 符号前缀
+
+- PKCS#1 / PKCS#8 / PKCS#10：`asn1_pkcs_*`（45 个，含 `asn1_pkcs_version_string`）。
+- PKCS#12：`asn1_pkcs12_*`（25 个），自 0.1.0 起冻结的例外。
+- 仓库中**不存在** `asn1_pkcs1_*`、`asn1_pkcs8_*`、`asn1_pkcs10_*` 三组前缀；新增 API 统一使用 `asn1_pkcs_`。未来若统一前缀，只能在 0.2.0 新增别名并保留 `asn1_pkcs12_*` 至少一个次版本周期，不重命名、不删除。
+
 ## 句柄与生命周期
 
 9 个不透明句柄各由 `open` 创建、`close` 销毁：

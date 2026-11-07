@@ -56,7 +56,9 @@
 | --- | --- | --- |
 | `asn1/pkix/pkix.h` | `asn1-pkix` | `asn1_pkix_` / `ASN1_PKIX_` |
 | `asn1/cms/cms.h` | `asn1-cms` | `asn1_cms_` / `ASN1_CMS_` |
-| `asn1/pkcs/pkcs.h` | `asn1-pkcs` | `asn1_pkcs_` / `ASN1_PKCS_` |
+| `asn1/pkcs/pkcs.h` | `asn1-pkcs` | `asn1_pkcs_` / `ASN1_PKCS_`；PKCS#12 切片为 `asn1_pkcs12_` / `ASN1_PKCS12_` |
+
+**PKCS#12 前缀例外**：`asn1-pkcs` 的 PKCS#12 切片自 0.1.0 起使用 `asn1_pkcs12_*`（25 个符号），PKCS#1/#8/#10 使用 `asn1_pkcs_*`（45 个，含 `asn1_pkcs_version_string`）。该例外随 0.1.0 发布并冻结，新增 API 仍遵循 `asn1_pkcs_`；仓库中不存在 `asn1_pkcs1_*`、`asn1_pkcs8_*`、`asn1_pkcs10_*` 三组前缀。
 
 消费者通过 `find_package(asn1-pkix CONFIG REQUIRED)` 获取模块目标；模块包自动声明对 `asn1` 的依赖。公共头文件统一使用 `extern "C"` 包裹（仅 C++ 编译时生效），并使用传统 include guard。
 
@@ -917,7 +919,7 @@ struct asn1_buf {
 - **字段顺序**：`SEQUENCE` 按 schema 声明顺序输出；`SET` 的字段仍按 DER 规则排序，而不是声明顺序。
 - **未知字段保留**：schema 感知编码时，凡未匹配到 schema 字段的子节点一律保留，**不限于** `ASN1_TYPE_EXTENSIBLE`。`SEQUENCE` 中已知字段按 schema 声明顺序在前，未匹配字段按 DOM 中的原始相对顺序追加到已知字段之后，未匹配字段之间不重排。`SET` 不得直接追加未知字段：本轮不做“已知 + 未知合并排序”，`SET` 中出现未匹配子节点返回 `ASN1_E_SCHEMA_FIELD`，绝不静默产出非法 DER。
 - **严格检查**：`asn1_encode_*` 没有严格开关，默认保留未知字段；需要严格检查时先调用 `asn1_doc_validate(..., ASN1_DECODE_STRICT_SCHEMA)`，该路径对未知字段返回 `ASN1_E_SCHEMA_FIELD`。
-- **ANY 与保留 TLV 的 DER 一致性**：schema 感知 DER 编码中，`ANY` 节点与保留的未知字段只保证**规范 DER 源**按其原始 TLV 逐字节回写；BER 不定长、非最短长度、长形式标签表示小 tag number、构造字符串、非规范基本值、未排序 `SET`/`SET OF` 等非规范源返回 `ASN1_E_NON_CANONICAL`，**不做隐式重新编码**。无 schema 的通用编码路径（`schema == NULL`）对 `ANY` 仍按节点保存的 TLV 原样写回，允许 BER 源往返；其余普通节点按通用 DER 规范化重建。
+- **ANY 与保留 TLV 的 DER 一致性**：schema 感知 DER 编码中，`ANY` 节点与保留的未知字段只保证**规范 DER 源**按其原始 TLV 逐字节回写；BER 不定长、非最短长度、长形式标签表示小 tag number、构造字符串、非规范基本值、未排序 `SET`/`SET OF` 等非规范源返回 `ASN1_E_NON_CANONICAL`，**不做隐式重新编码**。无 schema 的通用编码路径（`schema == NULL`）对 `ANY` 仍按节点保存的 TLV 原样写回，允许 BER 源往返；其余普通节点按通用 DER 规范化重建。回归用例：`tests/c_api/test_any.c` 的“BER 不定长保留 TLV → schema 编码 `NON_CANONICAL`”用例（约 709–750 行）与 `tests/c_api/test_schema_decode.c` 的非最短长度 ANY 用例（约 523–545 行）。
 - **runtime 构树 ANY 一致性**：解码得到的 ANY 与 `asn1_node_create_any` 建立的 runtime ANY 在两条编码路径上行为一致——原始 TLV 均来自节点自身保留的字节；schema 路径同样执行上述规范性校验，不因来源不同而放宽或拒绝。
 - **DER 输出保证范围**：库只在两条路径承诺输出 DER——(1) **由规范 DER 输入解码得到的文档**，经通用编码重建（普通节点按内容重建，`ANY` 保留的原始 TLV 本身也是 DER）；(2) **`schema != NULL` 的 schema 感知编码**，保留 TLV 按上一条校验，非规范源直接拒绝。`schema == NULL` 且文档含 `ANY`/保留 TLV 时，通用编码器只保证“按保存字节原样写回”；若这些字节来自 BER 源或 runtime 构树时传入的非规范 TLV，输出可能不是 DER，库不做隐式规范化。需要严格 DER 输出时，应使用 schema 感知编码（以 `ASN1_E_NON_CANONICAL` 拒绝非规范保留 TLV），或先经 `asn1_doc_validate` 校验。
 - **DEFAULT 省略**：启用 schema 时，字段编码结果与 schema 中的规范 DER 默认值逐字节相同时省略该字段；未启用 schema 时无法判定 DEFAULT，一律输出。
@@ -965,6 +967,7 @@ struct asn1_buf {
 - 只导出 `ASN1_API` 标记的符号；内部 C++ 符号默认隐藏（`CXX_VISIBILITY_PRESET hidden`）。
 - 不导出 C++ 符号、RTTI 信息或模板实例；公共头文件不要求消费者使用 C++。
 - 核心 ABI 稳定期内，模块可在自身次版本内独立升级；模块跨主版本升级同时要求兼容的核心 ABI 范围。
+- **已发布符号不得改名或删除**：PKCS#12 的 `asn1_pkcs12_*`（25 个）是随 0.1.0 冻结的前缀例外。未来若统一为 `asn1_pkcs_`，只能在 0.2.0 新增别名并保留旧符号至少一个次版本周期，不得重命名或删除既有符号。
 
 ## 12. 典型调用示例（C）
 
