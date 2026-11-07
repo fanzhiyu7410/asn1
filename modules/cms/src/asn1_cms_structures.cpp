@@ -252,7 +252,8 @@ asn1_err_t certificateTbsField(const handle_base *signed_data,
         return status;
     }
     if (certificateChoiceKind(item) != ASN1_CMS_CERT_CHOICE_CERTIFICATE) {
-        return ASN1_E_INVALID_ARG;
+        /* 扩展证书 / v1、v2 AttributeCertificate / other 只保留原始 TLV。 */
+        return ASN1_E_UNSUPPORTED;
     }
     const asn1_node_t *tbs = nestedField(item, "toBeSigned");
     if (tbs == nullptr) {

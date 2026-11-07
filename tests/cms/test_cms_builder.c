@@ -595,6 +595,100 @@ static int build_keyid_with_attrs(asn1_ctx_t *ctx)
     return 0;
 }
 
+/* v1/v2 AttributeCertificate 分支：certificate_at 保留 kind + 原始 TLV，
+ * 结构化访问器返回 UNSUPPORTED。 */
+static int build_attribute_cert_choice(asn1_ctx_t *ctx)
+{
+    static const uint8_t kSki[4] = {0x01, 0x02, 0x03, 0x04};
+    static const uint8_t kSignature[2] = {0xAA, 0xBB};
+    /* 本切片的 AttributeCertificateV1/V2 为不透明扩展 SEQUENCE：
+     * [1]/[2] IMPLICIT 空内容。 */
+    static const uint8_t kV1AttrCert[2] = {0xA1, 0x00};
+    static const uint8_t kV2AttrCert[2] = {0xA2, 0x00};
+
+    asn1_cms_builder_t *builder = NULL;
+    asn1_buf_t encoded;
+    memset(&encoded, 0, sizeof(encoded));
+    ASN1_TEST_CHECK(asn1_cms_builder_create(ctx, &builder) == ASN1_OK);
+    ASN1_TEST_CHECK(asn1_cms_builder_set_version(builder, 3) == ASN1_OK);
+    ASN1_TEST_CHECK(asn1_cms_builder_add_digest_algorithm(
+                        builder, kSha256Oid, NULL, 0) == ASN1_OK);
+    ASN1_TEST_CHECK(asn1_cms_builder_set_econtent_type(builder, kDataOid) ==
+                    ASN1_OK);
+    ASN1_TEST_CHECK(asn1_cms_builder_add_certificate(
+                        builder, kV1AttrCert, sizeof(kV1AttrCert)) == ASN1_OK);
+    ASN1_TEST_CHECK(asn1_cms_builder_add_certificate(
+                        builder, kV2AttrCert, sizeof(kV2AttrCert)) == ASN1_OK);
+    ASN1_TEST_CHECK(asn1_cms_builder_add_signer(
+                        builder, 1, ASN1_CMS_SID_SUBJECT_KEY_IDENTIFIER, kSki,
+                        sizeof(kSki), NULL, 0, kSha256Oid, NULL, 0, NULL, 0,
+                        kRsaEncryptionOid, kNullParams, sizeof(kNullParams),
+                        kSignature, sizeof(kSignature), NULL, 0) == ASN1_OK);
+    ASN1_TEST_CHECK(asn1_cms_builder_encode(builder, &encoded) == ASN1_OK);
+
+    {
+        asn1_cms_content_info_t *info = NULL;
+        asn1_cms_signed_data_t *signed_data = NULL;
+        const uint8_t *content = NULL;
+        size_t content_size = 0;
+        const uint8_t *tlv = NULL;
+        size_t tlv_size = 0;
+        const uint8_t *bytes = NULL;
+        size_t bytes_size = 0;
+        const char *text = NULL;
+        size_t text_size = 0;
+        int choice = -1;
+        size_t count = 0;
+
+        ASN1_TEST_CHECK(asn1_cms_content_info_open(ctx, encoded.data,
+                                                   encoded.size, &info) ==
+                        ASN1_OK);
+        ASN1_TEST_CHECK(asn1_cms_content_info_content(info, &content,
+                                                      &content_size) == ASN1_OK);
+        ASN1_TEST_CHECK(asn1_cms_signed_data_open(ctx, content, content_size,
+                                                  &signed_data) == ASN1_OK);
+        ASN1_TEST_CHECK(asn1_cms_signed_data_certificate_count(
+                            signed_data, &count) == ASN1_OK);
+        ASN1_TEST_CHECK(count == 2);
+        ASN1_TEST_CHECK(asn1_cms_signed_data_certificate_at(
+                            signed_data, 0, &choice, &tlv, &tlv_size) ==
+                        ASN1_OK);
+        ASN1_TEST_CHECK(choice == ASN1_CMS_CERT_CHOICE_V1_ATTR_CERT);
+        ASN1_TEST_CHECK(
+            bytes_equal(tlv, tlv_size, kV1AttrCert, sizeof(kV1AttrCert)));
+        ASN1_TEST_CHECK(asn1_cms_signed_data_certificate_at(
+                            signed_data, 1, &choice, &tlv, &tlv_size) ==
+                        ASN1_OK);
+        ASN1_TEST_CHECK(choice == ASN1_CMS_CERT_CHOICE_V2_ATTR_CERT);
+        ASN1_TEST_CHECK(
+            bytes_equal(tlv, tlv_size, kV2AttrCert, sizeof(kV2AttrCert)));
+        ASN1_TEST_CHECK(asn1_cms_signed_data_certificate_subject(
+                            signed_data, 0, &bytes, &bytes_size) ==
+                        ASN1_E_UNSUPPORTED);
+        ASN1_TEST_CHECK(asn1_cms_signed_data_certificate_subject(
+                            signed_data, 1, &bytes, &bytes_size) ==
+                        ASN1_E_UNSUPPORTED);
+        ASN1_TEST_CHECK(asn1_cms_signed_data_certificate_issuer(
+                            signed_data, 0, &bytes, &bytes_size) ==
+                        ASN1_E_UNSUPPORTED);
+        ASN1_TEST_CHECK(asn1_cms_signed_data_certificate_issuer(
+                            signed_data, 1, &bytes, &bytes_size) ==
+                        ASN1_E_UNSUPPORTED);
+        ASN1_TEST_CHECK(asn1_cms_signed_data_certificate_serial(
+                            signed_data, 0, &text, &text_size) ==
+                        ASN1_E_UNSUPPORTED);
+        ASN1_TEST_CHECK(asn1_cms_signed_data_certificate_serial(
+                            signed_data, 1, &text, &text_size) ==
+                        ASN1_E_UNSUPPORTED);
+
+        asn1_cms_signed_data_close(signed_data);
+        asn1_cms_content_info_close(info);
+    }
+    asn1_buf_release(ctx, &encoded);
+    asn1_cms_builder_destroy(builder);
+    return 0;
+}
+
 /* 负例：必填缺失、重复设置、非法 OID / TLV / 属性集合。 */
 static int builder_negative_cases(asn1_ctx_t *ctx)
 {
@@ -766,6 +860,7 @@ int main(void)
     ASN1_TEST_CHECK(build_detached(ctx) == 0);
     ASN1_TEST_CHECK(build_multicert(ctx) == 0);
     ASN1_TEST_CHECK(build_keyid_with_attrs(ctx) == 0);
+    ASN1_TEST_CHECK(build_attribute_cert_choice(ctx) == 0);
     ASN1_TEST_CHECK(builder_negative_cases(ctx) == 0);
 
     asn1_ctx_destroy(ctx);

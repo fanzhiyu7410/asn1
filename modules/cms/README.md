@@ -58,7 +58,7 @@ CMS / PKCS#7 标准结构模块（RFC 5652），以 `.asn1` 描述表驱动，�
 | `asn1_cms_signed_data_encap_content_type` | `eContentType` OID |
 | `asn1_cms_signed_data_encap_content` / `_tlv` | `eContent` 的 OCTET STRING 内容字节 / 完整 TLV |
 | `asn1_cms_signed_data_certificate_count` / `_at` | 证书条目数；每项分支判别（`ASN1_CMS_CERT_CHOICE_*`）+ 原始 TLV |
-| `asn1_cms_signed_data_certificate_subject` / `_issuer` / `_serial` | 仅证书分支：`TBSCertificate` 的 subject/issuer 原始 TLV、serialNumber 十进制文本 |
+| `asn1_cms_signed_data_certificate_subject` / `_issuer` / `_serial` | 仅证书分支：`TBSCertificate` 的 subject/issuer 原始 TLV、serialNumber 十进制文本；扩展证书、AttributeCertificate v1/v2 与 other 分支返回 `ASN1_E_UNSUPPORTED`（`certificate_at` 仍给分支与完整原始 TLV） |
 | `asn1_cms_signed_data_crl_count` / `_at` | CRL 条目数；每项分支判别（`ASN1_CMS_REVOCATION_CHOICE_*`）+ 原始 TLV |
 | `asn1_cms_signed_data_signer_count` | `signerInfos` 条目数 |
 | `asn1_cms_signed_data_signer_version` | `SignerInfo.version` 原值 |
@@ -180,9 +180,9 @@ cmake --build build-cms-regen --target asn1_cms_table_verify
 
 - 样本：`tests/data/cms_rsa_attached.der`（attached，证书 + signedAttrs）、`cms_rsa_detached.der`（detached，证书 + signedAttrs）、`cms_rsa_minimal.der`（无证书、无 signedAttrs）、`cms_rsa_ec_multicert.der`（RSA + ECDSA 多证书多签名者）、`cms_rsa_keyid.der`（sid 为 subjectKeyIdentifier）。由 `python scripts/gen_test_data.py --cms` 用已提交的证书/私钥生成。
 - 用例：`tests/cms/test_cms_structures.c`，覆盖正例字段读取、detached 无 `eContent`、多证书逐项、SignerInfo 各字段（含两种 sid 分支）、空参/非 CMS/截断负例。
-- 构造用例：`tests/cms/test_cms_builder.c`，覆盖 attached/detached、单/多证书、两种 `sid`、带 `signedAttrs`、无证书最小样本、必填缺失/重复设置/非法 TLV 负例；5 份样本做 decode → builder 重建 → 编码，规范 DER 源逐字节一致。
+- 构造用例：`tests/cms/test_cms_builder.c`，覆盖 attached/detached、单/多证书、两种 `sid`、带 `signedAttrs`、无证书最小样本、v1/v2 `AttributeCertificate` 分支（`certificate_at` 保留判别与原始 TLV，结构化访问器返回 `ASN1_E_UNSUPPORTED`）、必填缺失/重复设置/非法 TLV 负例；5 份样本做 decode → builder 重建 → 编码，规范 DER 源逐字节一致。
 - 同时纳入差分（OpenSSL `asn1parse` 逐样本对照）与 fuzz 语料。
 
 ## 状态
 
-0.1.0：ContentInfo / SignedData 只读字段访问与结构构造（builder + DER 编码）；只读与构造 C 用例在 MinGW（GCC 13.2，`-Werror`）下构建与 ctest 通过，5 份样本构造往返逐字节一致。构造侧不生成签名/摘要、不做加解密、不校验证书链。
+0.1.0：ContentInfo / SignedData 只读字段访问与结构构造（builder + DER 编码）；只读与构造 C 用例在 MinGW（GCC 13.2，`-Werror`）下构建与 ctest 通过，5 份样本构造往返逐字节一致。证书集合覆盖 `certificate`/`extendedCertificate`/`v1AttrCert`/`v2AttrCert`/`other` 全部分支：`certificate_at` 一律返回判别与完整原始 TLV，结构化访问器只对 `certificate` 生效，其余分支返回 `ASN1_E_UNSUPPORTED`。构造侧不生成签名/摘要、不做加解密、不校验证书链。

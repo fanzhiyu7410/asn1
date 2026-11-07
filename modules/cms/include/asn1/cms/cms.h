@@ -167,8 +167,10 @@ ASN1_CMS_API asn1_err_t asn1_cms_signed_data_certificate_at(
 
 /*
  * 仅对 ASN1_CMS_CERT_CHOICE_CERTIFICATE 分支有效：返回 TBSCertificate
- * 中 subject / issuer 的完整原始 TLV。其他分支或越界返回
- * ASN1_E_INVALID_ARG。不做链校验，也不解析 RDN 内容。
+ * 中 subject / issuer 的完整原始 TLV。扩展证书、v1/v2 AttributeCertificate
+ * 与 other 分支返回 ASN1_E_UNSUPPORTED（其完整原始 TLV 仍由
+ * certificate_at 返回）；下标越界返回 ASN1_E_INVALID_ARG。不做链校验，
+ * 也不解析 RDN 内容。
  */
 ASN1_CMS_API asn1_err_t asn1_cms_signed_data_certificate_subject(
     const asn1_cms_signed_data_t *signed_data, size_t index,
