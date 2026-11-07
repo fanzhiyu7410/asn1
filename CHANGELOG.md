@@ -8,9 +8,9 @@
 
 ### 文档
 
-- CI 与状态同步：README 与 `docs/06`/`docs/07` 统一引用 0.1.0 发布轮证据（ci 42362375253、sanitizers 42362375225、fuzz 42362375271、differential 42362375277），旧 run 保留并标注为 0.1.0 之前的历史记录（当次 28 条用例）；补充 MSVC 在 CI 上 Debug/Release 均跑全量 ctest、`fuzz-longrun-der` 仅 schedule/workflow_dispatch 触发。
-- PKCS#12 前缀例外：记录 `asn1_pkcs12_*`（25 个）随 0.1.0 冻结、PKCS#1/#8/#10 使用 `asn1_pkcs_*`（45 个）；未来统一只能在 0.2.0 新增别名并保留旧符号至少一个次版本周期。
-- 阶段 1 验收证据索引：逆序 SET OF、tag number 31/128/16384 解码往返、`format_version` 四种非法输入、性能基线，各给文件与用例位置。
+- CI 与状态同步：README 与 `docs/06`/`docs/07` 统一引用 0.1.1 卫生批证据（ci 42369322651、sanitizers 42369322610、fuzz 42369322608、differential 42369322643）；0.1.0 发布轮与更早 run 标注为历史记录；补充 MSVC 在 CI 上 Debug/Release 均跑全量 ctest、`fuzz-longrun-der` 仅 schedule/workflow_dispatch 触发。
+- PKCS#12 前缀例外：记录 PKCS#12 切片的**函数**使用 `asn1_pkcs12_*`（25 个）并随 0.1.0 冻结，导出/声明宏仍为 `ASN1_PKCS_`（不存在 `ASN1_PKCS12_` 宏前缀）；PKCS#1/#8/#10 的函数使用 `asn1_pkcs_*`（45 个）；未来统一只能在 0.2.0 新增函数别名并保留旧符号至少一个次版本周期。
+- 阶段 1 验收证据索引：逆序 SET OF、tag number 31/128/16384 解码往返、`format_version` 四类（五组输入）非法值、性能基线，各给文件与用例位置。
 - DER 口径收窄：无 schema 编码时普通节点仍按通用 DER 重建，只有 ANY/保留 TLV 原样回写；schema 感知编码校验保留 TLV，非 DER 返回 `ASN1_E_NON_CANONICAL`。
 - ANY 深度口径：schema 感知 DER 编码校验保留 TLV 时复用上下文 `max_depth`；`asn1_doc_validate` 的 `max_depth` 只约束 schema 绑定深度，不遍历 ANY 内层。
 
@@ -44,4 +44,5 @@
 - `asn1c` 一期只接受自包含展平模块；`IMPORTS` 与参数化展开在二期。
 - 未做 fuzz-hardened 安全认证；真实 Cortex-M4 板卡与本地 macOS 实机未实测（后者由 CI 覆盖）。
 
+[0.1.1]: https://github.com/fanzhiyu7410/asn1/releases/tag/v0.1.1
 [0.1.0]: https://github.com/fanzhiyu7410/asn1/releases/tag/v0.1.0
